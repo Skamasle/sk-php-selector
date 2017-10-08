@@ -1,6 +1,6 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.2.4
+# version = beta 0.2.4.1
 # From skamasle.com
 # Run at your risk.
 # This program is distributed in the hope that it will be useful,
