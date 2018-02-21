@@ -38,7 +38,6 @@ ln -s /etc/opt/remi/php55/php.ini /etc/php${1}.ini
 ln -s  /etc/opt/remi/php55/php.d /etc/php${1}.d
 
 chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
-chmod 777 /opt/remi/php${1}/root/var/lib/php/session
 tput setaf 1
 echo "PHP ${2} Ready!"
 tput sgr0
