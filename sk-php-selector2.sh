@@ -81,6 +81,7 @@ yum install -y php72-php-imap php72-php-process php72-php-pspell php72-php-xml p
 echo "......."
 
 fixit 72
+fi
 }
 
 function phpinstall56 () {
