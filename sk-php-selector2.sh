@@ -1,12 +1,8 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.2.4.1
+# version = beta 0.2.4
 # From skamasle.com
 # Run at your risk.
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details. http://www.gnu.org/licenses/
 sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
 sklog=/var/log/skphp.log
 if [ ! -e /etc/yum.repos.d/remi.repo ]; then
@@ -38,11 +34,12 @@ ln -s /etc/opt/remi/php55/php.ini /etc/php${1}.ini
 ln -s  /etc/opt/remi/php55/php.d /etc/php${1}.d
 
 chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
+
 tput setaf 1
 echo "PHP ${2} Ready!"
 tput sgr0
 }
-function phpinstall7 () {
+function phpinstall70 () {
 ver=7.0
 if [ $actual = $ver ];then
 echo "Skip PHP 7.0 actually installed"
@@ -76,7 +73,7 @@ echo "Skip PHP 7.2 actually installed"
 else
 tput setaf 2
 echo "Installing PHP 7.2"
-yum install -y php72-php-imap php72-php-process php72-php-pspell php72-php-xml php72-php-xmlrpc php72-php-pdo php72-php-ldap php72-php-pecl-zip php701-php-common php72-php php72-php-mcrypt php72-php-gmp php72-php-mysqlnd php72-php-mbstring php72-php-gd php72-php-tidy php72-php-pecl-memcache --enablerepo=remi  >> $sklog
+yum install - php72-php-imap php72-php-process php72-php-pspell php72-php-xml php72-php-xmlrpc php72-php-pdo php72-php-ldap php72-php-pecl-zip php701-php-common php72-php php72-php-mcrypt php72-php-gmp php72-php-mysqlnd php72-php-mbstring php72-php-gd php72-php-tidy php72-php-pecl-memcache --enablerepo=remi  >> $sklog
 echo "......."
 
 fixit 72
@@ -122,28 +119,61 @@ echo "........"
 fixit 54
 fi
 }
-
-if [ -e /etc/redhat-release ];then
-	if [[ "$sistema" -eq 7  ||  "$sistema" -eq 6 ]]; then
+all () {
 tput setaf 4
-echo "You have remi repo installed and run: "
-cat /etc/redhat-release
-echo "##########"
-echo "Start installing aditional php version"
-echo "##########"
-tput setaf 2
-echo "Actually you runing php $actual, so I will skip it"
+echo "You Select install all php versions"
 tput sgr0
 	phpinstall54
 	phpinstall55
 	phpinstall56
-	phpinstall7
+	phpinstall70
 	phpinstall71
 	phpinstall72
+}
+usage () {
+tput setaf 1
+	echo "You can select php version you need, run your script as :"
+tput sgr0
+echo "bash $0 php55"
+echo "or"
+echo "bash $0 php56 php55 php71"
+tput setaf 1
+	echo "or install all available versions :"
+tput sgr0
+echo "bash $0 all"
+}
+
+if [ -e /etc/redhat-release ];then
+	if [ -z "$args" ]; then
+		usage
+		exit 2
+	fi
+	if [[ "$sistema" -eq 7  ||  "$sistema" -eq 6 ]]; then
+		tput setaf 4
+			echo "You have remi repo installed and run: "
+			cat /etc/redhat-release
+			echo "##########"
+			echo "Start installing aditional php version"
+			echo "##########"
+		tput sgr0
+for args in "$@" ; do
+tput setaf 2
+	echo "Actually you runing php $actual, so I will skip it"
+tput sgr0
+		case $args  in
+			php54) phpinstall54 ;;
+			php55) phpinstall55 ;;
+			php56) phpinstall56 ;;
+			php70) phpinstall70 ;;
+			php71) phpinstall71 ;;
+			php72) phpinstall72 ;;
+			all) all ;;
+	  esac
+done
 echo "################################"
 echo "Aditional PHP versión installed!"
-echo "More info on skamasle.com or vestacp forums."
-fi
+echo "More info on skamasle.com or vestacp forums or twit your experience in @skamasle"
+		fi
 else
 	echo "Only support centos"
 exit 3
