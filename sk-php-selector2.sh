@@ -36,7 +36,7 @@ ln -s  /etc/opt/remi/php55/php.d /etc/php${1}.d
 chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 
 tput setaf 1
-echo "PHP ${2} Ready!"
+echo "PHP ${1} Ready!"
 tput sgr0
 }
 function phpinstall70 () {
