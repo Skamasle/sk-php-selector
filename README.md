@@ -3,10 +3,20 @@ PHP selector for centos 7
 
 RUN AT YOUR OWN RISK
 
-This install php 5.4, 5.5, 5.6, 7.0, 7.1 and 7.2 in your ventos 6
+This install php 5.4, 5.5, 5.6, 7.0, 7.1 and 7.2 in your centos 6 and centos 7
 
-This script take php from remi repo, if you have any orther remo added the result can be unexpected
+sk-php-selecto2.sh is fot testing but with it you can select aditional versions of php
 
-This script not install your defult php versión, so if you run 5.6 this script try not install it.
+So you can select just one version runing it as:
 
-This script not have uninstaller yet.
+bash sk-php-selector2.sh php72
+
+Or install multiple version
+
+bash sk-php-selector2.sh php56 php71
+
+or install all
+
+bash sk-php-selector2.sh all
+
+This works fine, the configuration of php need some work
