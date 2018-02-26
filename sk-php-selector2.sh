@@ -144,7 +144,7 @@ echo "bash $0 all"
 }
 
 if [ -e /etc/redhat-release ];then
-	if [ -z "$@" ]; then
+	if [ -z "$1" ]; then
 		usage
 		exit 2
 	fi
