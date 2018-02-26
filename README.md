@@ -20,3 +20,9 @@ bash sk-php-selector2.sh php56 php71
 bash sk-php-selector2.sh all
 
 This works fine, the configuration of php need some work so try firts in test enviroment
+
+------------
+
+This can break phpmyadmin, in this case you need delete some mod_php files in /etc/httpd/conf.d/ you can move out all php??.conf just leave php.conf ( not delete maybe you need restore it )
+
+This is aleatory and need more debugin, not always was broken so I cant say you exactly, but the solution is wasy
