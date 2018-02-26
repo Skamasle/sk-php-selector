@@ -1,6 +1,6 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.2.4
+# version = beta 0.3
 # From skamasle.com
 # Run at your risk.
 sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
