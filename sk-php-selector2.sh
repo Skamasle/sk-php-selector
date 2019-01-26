@@ -1,6 +1,6 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.3
+# version = beta 0.4 
 # From skamasle.com
 # Run at your risk.
 sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
@@ -79,6 +79,19 @@ echo "......."
 fixit 72
 fi
 }
+function phpinstall73 () {
+ver=7.3
+if [ $actual = $ver ];then
+echo "Skip PHP 7.3 actually installed"
+else
+tput setaf 2
+echo "Installing PHP 7.3"
+yum install -y php73-php-imap php73-php-process php73-php-pspell php73-php-xml php73-php-xmlrpc php73-php-pdo php73-php-ldap php73-php-pecl-zip php701-php-common php73-php php73-php-mcrypt php73-php-gmp php73-php-mysqlnd php73-php-mbstring php73-php-gd php73-php-tidy php73-php-pecl-memcache --enablerepo=remi  >> $sklog
+echo "......."
+
+fixit 73
+fi
+}
 
 function phpinstall56 () {
 ver=5.6
@@ -129,6 +142,7 @@ tput sgr0
 	phpinstall70
 	phpinstall71
 	phpinstall72
+    phpinstall73
 }
 usage () {
 tput setaf 1
@@ -141,6 +155,11 @@ tput setaf 1
 	echo "or install all available versions :"
 tput sgr0
 echo "bash $0 all"
+tput setaf 1
+    echo "###############################################"
+	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73"
+    echo "###############################################"
+tput sgr0
 }
 
 if [ -e /etc/redhat-release ];then
@@ -167,12 +186,14 @@ tput sgr0
 			php70) phpinstall70 ;;
 			php71) phpinstall71 ;;
 			php72) phpinstall72 ;;
+            		php73) phpinstall73 ;;
 			all) all ;;
 	  esac
 done
 echo "################################"
 echo "Aditional PHP versión installed!"
-echo "More info on skamasle.com or vestacp forums or twit your experience in @skamasle"
+echo "More info on skamasle.com or forum.vestacp.com or follwme in twiter @skamasle"
+echo "################################"
 		fi
 else
 	echo "Only support centos"
