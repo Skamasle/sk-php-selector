@@ -29,9 +29,9 @@ ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/d
 
 ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.tpl 
 
-ln -s /etc/opt/remi/php55/php.ini /etc/php${1}.ini
+ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
 
-ln -s  /etc/opt/remi/php55/php.d /etc/php${1}.d
+ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
 
 chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 
