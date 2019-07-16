@@ -1,6 +1,6 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.4 
+# version = beta 0.4.1 php 7.4 added
 # From skamasle.com
 # Run at your risk.
 sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
@@ -29,9 +29,9 @@ ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/d
 
 ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.tpl 
 
-ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
+ln -s /etc/opt/remi/php55/php.ini /etc/php${1}.ini
 
-ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
+ln -s  /etc/opt/remi/php55/php.d /etc/php${1}.d
 
 chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 
@@ -59,7 +59,7 @@ echo "Skip PHP 7.1 actually installed"
 else
 tput setaf 2
 echo "Installing PHP 7.1"
-yum install -y php71-php-imap php71-php-process php71-php-pspell php71-php-xml php71-php-xmlrpc php71-php-pdo php71-php-ldap php71-php-pecl-zip php701-php-common php71-php php71-php-mcrypt php71-php-gmp php71-php-mysqlnd php71-php-mbstring php71-php-gd php71-php-tidy php71-php-pecl-memcache --enablerepo=remi  >> $sklog
+yum install -y php71-php-imap php71-php-process php71-php-pspell php71-php-xml php71-php-xmlrpc php71-php-pdo php71-php-ldap php71-php-pecl-zip php71-php-common php71-php php71-php-mcrypt php71-php-gmp php71-php-mysqlnd php71-php-mbstring php71-php-gd php71-php-tidy php71-php-pecl-memcache --enablerepo=remi  >> $sklog
 echo "......."
 
 fixit 71
@@ -73,7 +73,7 @@ echo "Skip PHP 7.2 actually installed"
 else
 tput setaf 2
 echo "Installing PHP 7.2"
-yum install -y php72-php-imap php72-php-process php72-php-pspell php72-php-xml php72-php-xmlrpc php72-php-pdo php72-php-ldap php72-php-pecl-zip php701-php-common php72-php php72-php-mcrypt php72-php-gmp php72-php-mysqlnd php72-php-mbstring php72-php-gd php72-php-tidy php72-php-pecl-memcache --enablerepo=remi  >> $sklog
+yum install -y php72-php-imap php72-php-process php72-php-pspell php72-php-xml php72-php-xmlrpc php72-php-pdo php72-php-ldap php72-php-pecl-zip php72-php-common php72-php php72-php-mcrypt php72-php-gmp php72-php-mysqlnd php72-php-mbstring php72-php-gd php72-php-tidy php72-php-pecl-memcache --enablerepo=remi  >> $sklog
 echo "......."
 
 fixit 72
@@ -86,10 +86,23 @@ echo "Skip PHP 7.3 actually installed"
 else
 tput setaf 2
 echo "Installing PHP 7.3"
-yum install -y php73-php-imap php73-php-process php73-php-pspell php73-php-xml php73-php-xmlrpc php73-php-pdo php73-php-ldap php73-php-pecl-zip php701-php-common php73-php php73-php-mcrypt php73-php-gmp php73-php-mysqlnd php73-php-mbstring php73-php-gd php73-php-tidy php73-php-pecl-memcache --enablerepo=remi  >> $sklog
+yum install -y php73-php-imap php73-php-process php73-php-pspell php73-php-xml php73-php-xmlrpc php73-php-pdo php73-php-ldap php73-php-pecl-zip php73-php-common php73-php php73-php-mcrypt php73-php-gmp php73-php-mysqlnd php73-php-mbstring php73-php-gd php73-php-tidy php73-php-pecl-memcache --enablerepo=remi  >> $sklog
 echo "......."
 
 fixit 73
+fi
+}
+function phpinstall74 () {
+ver=7.4
+if [ $actual = $ver ];then
+echo "Skip PHP 7.4 actually installed"
+else
+tput setaf 2
+echo "Installing PHP 7.4"
+yum install -y php74-php-imap php74-php-process php74-php-pspell php74-php-xml php74-php-xmlrpc php74-php-pdo php74-php-ldap php74-php-pecl-zip php74-php-common php74-php php74-php-mcrypt php74-php-gmp php74-php-mysqlnd php74-php-mbstring php74-php-gd php74-php-tidy php74-php-pecl-memcache --enablerepo=remi  >> $sklog
+echo "......."
+
+fixit 74
 fi
 }
 
@@ -143,6 +156,7 @@ tput sgr0
 	phpinstall71
 	phpinstall72
     phpinstall73
+    phpinstall74
 }
 usage () {
 tput setaf 1
@@ -186,7 +200,8 @@ tput sgr0
 			php70) phpinstall70 ;;
 			php71) phpinstall71 ;;
 			php72) phpinstall72 ;;
-            		php73) phpinstall73 ;;
+            php73) phpinstall73 ;;
+            php74) phpinstall74 ;;
 			all) all ;;
 	  esac
 done
