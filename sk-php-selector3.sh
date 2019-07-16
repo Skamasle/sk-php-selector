@@ -49,7 +49,7 @@ echo "Instaling PHP $ver2"
 yum install -y  php${ver}-php-pspell php${ver}-php-process php${ver}-php-imap php${ver}-php-xml php${ver}-php-xmlrpc php${ver}-php-pdo php${ver}-php-ldap php${ver}-php-pecl-zip php${ver}-php-common php${ver}-php-gmp php${ver}-php php${ver}-php-mysqlnd php${ver}-php-mbstring php${ver}-php-gd php${ver}-php-tidy php${ver}-php-pecl-memcache --enablerepo=remi >> $sklog
 echo "........"
 
-fixit $ver1
+fixit $ver
 fi
 }
 all () {
@@ -103,10 +103,10 @@ tput sgr0
 		case $args  in
 			php54) installit 54 5.4 ;;
 			php55) installit 55 5.5 ;;
-			php56) installit 56 5.6;;
-			php70) installit 70 7.0;;
-			php71) installit 71 7.1;;
-			php72) installit 72 7.2;;
+			php56) installit 56 5.6 ;;
+			php70) installit 70 7.0 ;;
+			php71) installit 71 7.1 ;;
+			php72) installit 72 7.2 ;;
             php73) installit 73 7.3;;
             php74) installit 74 7.4;;
 			all) all ;;
