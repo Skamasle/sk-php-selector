@@ -1,6 +1,6 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.5 # in testing simplified code
+# version = beta 0.5 Code simplified just for testing
 # From skamasle.com
 # Run at your risk.
 sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
@@ -29,11 +29,16 @@ ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/da
 if [ -e /etc/opt/remi/php${1}/php.ini ]; then
     ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
     ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
+else
+    if [ -e /opt/remi/php${1}/root/etc/php.ini ]
+        ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
+        ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
+    fi
 fi
 chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 
 tput setaf 1
-echo "PHP ${1} Ready!"
+echo "PHP ${ver2} Ready!"
 tput sgr0
 }
 
@@ -42,14 +47,13 @@ ver=$1
 ver2=$2
 
 if [ $actual = $ver2 ];then
-echo "Skip php 5.4 actually installed"
+    echo "Skip php $ver2 actually installed"
 else
 tput setaf 2
 echo "Instaling PHP $ver2"
 yum install -y  php${ver}-php-pspell php${ver}-php-process php${ver}-php-imap php${ver}-php-xml php${ver}-php-xmlrpc php${ver}-php-pdo php${ver}-php-ldap php${ver}-php-pecl-zip php${ver}-php-common php${ver}-php-gmp php${ver}-php php${ver}-php-mysqlnd php${ver}-php-mbstring php${ver}-php-gd php${ver}-php-tidy php${ver}-php-pecl-memcache --enablerepo=remi >> $sklog
 echo "........"
-
-fixit $ver
+fixit $ver $ver2
 fi
 }
 all () {
@@ -78,7 +82,7 @@ tput sgr0
 echo "bash $0 all"
 tput setaf 1
     echo "###############################################"
-	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73, 74"
+	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73"
     echo "###############################################"
 tput sgr0
 }
@@ -107,8 +111,8 @@ tput sgr0
 			php70) installit 70 7.0 ;;
 			php71) installit 71 7.1 ;;
 			php72) installit 72 7.2 ;;
-            php73) installit 73 7.3;;
-            php74) installit 74 7.4;;
+            php73) installit 73 7.3 ;;
+            php74) installit 74 7.4 ;;
 			all) all ;;
 	  esac
 done
