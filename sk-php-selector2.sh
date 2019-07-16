@@ -1,6 +1,6 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.4.1 php 7.4 added
+# version = beta 0.4 
 # From skamasle.com
 # Run at your risk.
 sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
@@ -24,15 +24,12 @@ fi
 
 fixit () {
 curl -s http://mirror.skamasle.com/vestacp/PHP/sk-php${1}-centos.sh > /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
-
 ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.stpl
-
 ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.tpl 
-
-ln -s /etc/opt/remi/php55/php.ini /etc/php${1}.ini
-
-ln -s  /etc/opt/remi/php55/php.d /etc/php${1}.d
-
+if [ -e /etc/opt/remi/php${1}/php.ini ]; then
+    ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
+    ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
+fi
 chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 
 tput setaf 1
@@ -85,7 +82,7 @@ if [ $actual = $ver ];then
 echo "Skip PHP 7.3 actually installed"
 else
 tput setaf 2
-echo "Installing PHP 7.3"
+    echo "Installing PHP 7.3"
 yum install -y php73-php-imap php73-php-process php73-php-pspell php73-php-xml php73-php-xmlrpc php73-php-pdo php73-php-ldap php73-php-pecl-zip php73-php-common php73-php php73-php-mcrypt php73-php-gmp php73-php-mysqlnd php73-php-mbstring php73-php-gd php73-php-tidy php73-php-pecl-memcache --enablerepo=remi  >> $sklog
 echo "......."
 
@@ -95,7 +92,7 @@ fi
 function phpinstall74 () {
 ver=7.4
 if [ $actual = $ver ];then
-echo "Skip PHP 7.4 actually installed"
+    echo "Skip PHP 7.4 actually installed"
 else
 tput setaf 2
 echo "Installing PHP 7.4"
@@ -171,7 +168,7 @@ tput sgr0
 echo "bash $0 all"
 tput setaf 1
     echo "###############################################"
-	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73, 74"
+	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73"
     echo "###############################################"
 tput sgr0
 }
