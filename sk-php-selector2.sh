@@ -171,7 +171,7 @@ tput sgr0
 echo "bash $0 all"
 tput setaf 1
     echo "###############################################"
-	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73"
+	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73, 74"
     echo "###############################################"
 tput sgr0
 }
