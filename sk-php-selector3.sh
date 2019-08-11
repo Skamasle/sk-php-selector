@@ -29,11 +29,9 @@ ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/da
 if [ -e /etc/opt/remi/php${1}/php.ini ]; then
     ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
     ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
-else
-    if [ -e /opt/remi/php${1}/root/etc/php.ini ]
+elif [ -e /opt/remi/php${1}/root/etc/php.ini ]; then
         ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
         ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
-    fi
 fi
 chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 
