@@ -24,13 +24,17 @@ fi
 
 fixit () {
 curl -s http://mirror.skamasle.com/vestacp/PHP/sk-php${1}-centos.sh > /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
-ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.stpl
-ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.tpl 
-if [ -e /etc/opt/remi/php${1}/php.ini ]; then
+if [ ! -e /usr/local/vesta/data/templates/web/httpd/sk-php${1}.stpl ]; then
+    ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.stpl
+fi
+if [ ! -e /usr/local/vesta/data/templates/web/httpd/sk-php${1}.tpl ]; then
+    ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.tpl 
+fi
+if [ -e /etc/opt/remi/php${1}/php.ini ] && [ ! -e /etc/php${1}.ini ]; then
     ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
     ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
 else
-    if [ -e /opt/remi/php${1}/root/etc/php.ini ]; then
+    if [ -e /opt/remi/php${1}/root/etc/php.ini ] && [ ! -e /etc/php${1}.ini ]; then
         ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
         ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
     fi
