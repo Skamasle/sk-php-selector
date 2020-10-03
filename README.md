@@ -27,3 +27,9 @@ This works fine, the configuration of php need some work so try firts in test en
 This can break phpmyadmin, in this case you need delete some mod_php files in /etc/httpd/conf.d/ you can move out all php??.conf just leave php.conf ( not delete maybe you need restore it )
 
 This is aleatory and need more debugin, not always was broken so I cant say you exactly, but the solution is wasy
+
+# Diferences between version 2 and 3
+
+This work in same way, sk-php-selector3.sh have short code, and sk-php-selector2.sh have a lite more code, but this one  you can modify in easy way, and  you can add for each php version diferent modules, just edit yum install line as your need, if you need specific module in php 7 and orther in php 5 and want customice it use sk-php-selector2.sh
+
+sk-php-selector is a first version may work, but I not recomend you use it
