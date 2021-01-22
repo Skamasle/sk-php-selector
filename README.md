@@ -3,7 +3,7 @@ PHP selector for centos 6/7
 
 # RUN AT YOUR OWN RISK
 
-This install php 5.4, 5.5, 5.6, 7.0, 7.1, 7.2, 7.3 and 7.4alpha in your centos 6 and centos 7
+This install php 5.4, 5.5, 5.6, 7.0, 7.1, 7.2, 7.3, 7.4 and 8.0 in your centos 6 and centos 7
 
 **Use sk-php-selector2.sh, in this you can select what php version install
 sk-php-selector3.sh is same as sk-php-selector2.sh but with simplified code, now in testing **
