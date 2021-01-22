@@ -12,6 +12,8 @@ sk-php-selector3.sh is same as sk-php-selector2.sh but with simplified code, now
 
 bash sk-php-selector2.sh php72
 
+bash sk-php-selector2.sh php80
+
 # Or install multiple version
 
 bash sk-php-selector2.sh php56 php71
