@@ -15,10 +15,6 @@ exit 2
 fi
 # fix php 7 version detection...
 vp=$(php -v |head -n1 |cut -c5)
-echo "óóóóóóó"
-tput vp
-echo vp
-echo "óóóóóóó"
 if [ "$vp" -eq 5 ];then
 	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "5\.\\d+")
 elif [ "$vp" -eq 7 ];then
