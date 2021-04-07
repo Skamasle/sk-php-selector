@@ -25,7 +25,8 @@ exit 4
 fi
 
 fixit () {
-curl -s https://raw.githubusercontent.com/Skamasle/sk-php-selector/master/sk-php${1}-centos.sh > /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
+# Temporary the resource from my personal Github repo.
+curl -s https://raw.githubusercontent.com/samaphp/sk-php-selector/master/sk-php${1}-centos.sh > /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.stpl
 ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.tpl 
 if [ -e /etc/opt/remi/php${1}/php.ini ]; then
@@ -37,6 +38,19 @@ chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 tput setaf 1
 echo "PHP ${1} Ready!"
 tput sgr0
+}
+function phpinstall80 () {
+ver=8.0
+if [ $actual = $ver ];then
+echo "Skip PHP 8.0 actually installed"
+else
+tput setaf 2
+echo "Installing PHP 8.0"
+yum install -y php80-php-imap php80-php-process php80-php-pspell php80-php-xml php80-php-xmlrpc php80-php-pdo php80-php-ldap php80-php-pecl-zip php80-php-common php80-php php80-php-mcrypt php80-php-gmp php80-php-mysqlnd php80-php-mbstring php80-php-gd php80-php-tidy php80-php-pecl-memcache --enablerepo=remi  >> $sklog
+echo "......."
+
+fixit 80
+fi
 }
 function phpinstall70 () {
 ver=7.0
@@ -156,6 +170,7 @@ tput sgr0
 	phpinstall72
     phpinstall73
     phpinstall74
+    phpinstall80
 }
 usage () {
 tput setaf 1
@@ -170,7 +185,7 @@ tput sgr0
 echo "bash $0 all"
 tput setaf 1
     echo "###############################################"
-	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73"
+	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73, 80"
     echo "###############################################"
 tput sgr0
 }
@@ -201,6 +216,7 @@ tput sgr0
 			php72) phpinstall72 ;;
             php73) phpinstall73 ;;
             php74) phpinstall74 ;;
+            php80) phpinstall80 ;;
 			all) all ;;
 	  esac
 done

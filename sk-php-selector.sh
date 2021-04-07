@@ -19,12 +19,42 @@ if [ "$vp" -eq 5 ];then
 	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "5\.\\d+")
 elif [ "$vp" -eq 7 ];then
 	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "7\.\\d+")
+elif [ "$vp" -eq 8 ];then
+	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "8\.\\d+")
 else
 echo "Cant get actual php versión"
 echo "Run php -v and ask on forum or yo@skamasle.com"
 echo "Leaving instalation..."
 exit 4
 fi
+
+function phpinstall8 () {
+ver=8.0
+if [ $actual = $ver ];then
+echo "Skip PHP 8.0 actually installed"
+else
+tput setaf 2
+echo "Installing PHP 8.0"
+yum install -y php80-php-imap php80-php-process php80-php-pspell php80-php-xml php80-php-xmlrpc php80-php-pdo php80-php-ldap php80-php-pecl-zip php80-php-common php80-php php80-php-mcrypt php80-php-gmp php80-php-mysqlnd php80-php-mbstring php80-php-gd php80-php-tidy php80-php-pecl-memcache --enablerepo=remi  >> $sklog
+echo "......."
+
+# Temporary source on my personal Github repo.
+curl -s https://raw.githubusercontent.com/samaphp/sk-php-selector/master/sk-php80-centos.sh > /usr/local/vesta/data/templates/web/httpd/sk-php80.sh
+
+ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/data/templates/web/httpd/sk-php80.stpl
+
+ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/data/templates/web/httpd/sk-php80.tpl  
+
+ln -s /etc/opt/remi/php80/php.ini /etc/php80.ini
+
+ln -s  /etc/opt/remi/php80/php.d /etc/php80.d
+
+chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php80.sh
+tput setaf 1
+echo "PHP 8.0 Ready!"
+tput sgr0 
+fi
+}
 
 function phpinstall7 () {
 ver=7.0
@@ -206,6 +236,7 @@ tput sgr0
 	phpinstall7
 	phpinstall71
 	phpinstall72
+	phpinstall8
 echo "################################"
 echo "Aditional PHP versión installed!"
 echo "More info on skamasle.com or vestacp forums."

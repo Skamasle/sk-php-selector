@@ -25,7 +25,8 @@ exit 4
 fi
 
 fixit () {
-curl -s https://raw.githubusercontent.com/Skamasle/sk-php-selector/master/sk-php${1}-centos.sh > /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
+# Temporary the resource from my personal Github repo.
+curl -s https://raw.githubusercontent.com/samaphp/sk-php-selector/master/sk-php${1}-centos.sh > /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
 if [ ! -e /usr/local/vesta/data/templates/web/httpd/sk-php${1}.stpl ]; then
     ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.stpl
 fi
@@ -74,6 +75,7 @@ tput sgr0
     installit 72 7.2
     installit 73 7.3
     installit 74 7.4
+    installit 80 8.0
 }
 usage () {
 tput setaf 1
@@ -88,7 +90,7 @@ tput sgr0
 echo "bash $0 all"
 tput setaf 1
     echo "###############################################"
-	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73"
+	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73, 80"
     echo "###############################################"
 tput sgr0
 }
@@ -119,6 +121,7 @@ tput sgr0
 			php72) installit 72 7.2 ;;
             php73) installit 73 7.3 ;;
             php74) installit 74 7.4 ;;
+            php80) installit 80 8.0 ;;
 			all) all ;;
 	  esac
 done
