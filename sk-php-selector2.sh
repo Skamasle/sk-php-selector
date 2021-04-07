@@ -1,6 +1,6 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.4 
+# version = beta 0.4.1
 # From skamasle.com
 # Run at your risk.
 sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
@@ -15,6 +15,8 @@ if [ "$vp" -eq 5 ];then
 	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "5\.\\d+")
 elif [ "$vp" -eq 7 ];then
 	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "7\.\\d+")
+elif [ "$vp" -eq 8 ];then
+	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "8\.\\d+")
 else
 echo "Cant get actual php versión"
 echo "Run php -v and ask on forum or yo@skamasle.com"
