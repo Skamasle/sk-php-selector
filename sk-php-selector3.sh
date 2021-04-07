@@ -1,6 +1,6 @@
 #!/bin/bash
 # Skamasle PHP SELECTOR for vesta
-# version = beta 0.5 Code simplified just for testing
+# version = beta 0.6 Code simplified just for testing
 # From skamasle.com
 # Run at your risk.
 sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
@@ -9,12 +9,14 @@ if [ ! -e /etc/yum.repos.d/remi.repo ]; then
 echo "I not found remi repo, stop install... "
 exit 2
 fi
-# fix php 7 version detection...
+# fix php 8 version detection...
 vp=$(php -v |head -n1 |cut -c5)
 if [ "$vp" -eq 5 ];then
 	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "5\.\\d+")
 elif [ "$vp" -eq 7 ];then
 	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "7\.\\d+")
+elif [ "$vp" -eq 8 ];then
+	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "8\.\\d+")
 else
 echo "Cant get actual php version"
 echo "Run php -v and ask on forum or yo@skamasle.com"
