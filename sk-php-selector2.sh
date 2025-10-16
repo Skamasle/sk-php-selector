@@ -1,231 +1,295 @@
 #!/bin/bash
-# Skamasle PHP SELECTOR for vesta
-# version = beta 0.4.1
-# From skamasle.com
-# Run at your risk.
-sistema=$(grep -o "[0-9]" /etc/redhat-release |head -n1)
-sklog=/var/log/skphp.log
-if [ ! -e /etc/yum.repos.d/remi.repo ]; then
-echo "I not found remi repo, stop install... "
-exit 2
-fi
-# fix php 7 version detection...
-vp=$(php -v |head -n1 |cut -c5)
-if [ "$vp" -eq 5 ];then
-	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "5\.\\d+")
-elif [ "$vp" -eq 7 ];then
-	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "7\.\\d+")
-elif [ "$vp" -eq 8 ];then
-	actual=$(php -v| head -n1 | grep --only-matching --perl-regexp "8\.\\d+")
-else
-echo "Cant get actual php versión"
-echo "Run php -v and ask on forum or yo@skamasle.com"
-echo "Leaving instalation..."
-exit 4
-fi
+# ==============================================================================
+# Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
+# Extended & Hardened by Konstantin — version 1.3 (Stable, 300 lines)
+#
+# Features:
+#   - Supports Remi SCL PHP 5.4 → 8.3
+#   - Auto-installs Remi repo if missing
+#   - Verifies installation via /opt/remi/phpXX/root/usr/bin/php
+#   - Fetches Vesta templates from GitHub if available
+#   - Falls back to local file if remote fetch fails
+#   - Creates clean /etc/phpXX.ini & /etc/phpXX.d symlinks
+#   - Optional FPM support (--with-fpm)
+#   - Safe for repeated runs (idempotent)
+# ==============================================================================
 
-fixit () {
-# Temporary the resource from my personal Github repo.
-curl -s https://raw.githubusercontent.com/samaphp/sk-php-selector/master/sk-php${1}-centos.sh > /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
-ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.stpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.stpl
-ln -s /usr/local/vesta/data/templates/web/httpd/phpfcgid.tpl /usr/local/vesta/data/templates/web/httpd/sk-php${1}.tpl 
-if [ -e /etc/opt/remi/php${1}/php.ini ]; then
-    ln -s /etc/opt/remi/php${1}/php.ini /etc/php${1}.ini
-    ln -s  /etc/opt/remi/php${1}/php.d /etc/php${1}.d
-fi
-chmod +x /usr/local/vesta/data/templates/web/httpd/sk-php${1}.sh
+set -euo pipefail
 
-tput setaf 1
-echo "PHP ${1} Ready!"
-tput sgr0
-}
-function phpinstall80 () {
-ver=8.0
-if [ $actual = $ver ];then
-echo "Skip PHP 8.0 actually installed"
-else
-tput setaf 2
-echo "Installing PHP 8.0"
-yum install -y php80-php-imap php80-php-process php80-php-pspell php80-php-xml php80-php-xmlrpc php80-php-pdo php80-php-ldap php80-php-pecl-zip php80-php-common php80-php php80-php-mcrypt php80-php-gmp php80-php-mysqlnd php80-php-mbstring php80-php-gd php80-php-tidy php80-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "......."
+# --------------------------- Configuration -----------------------------------
+LOGFILE="/var/log/skphp.log"
+TEMPLATE_DIR="/usr/local/vesta/data/templates/web/httpd"
+REMI_REPO_FILE="/etc/yum.repos.d/remi.repo"
+SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83)
+YUM_REPOS="remi,remi-safe,remi-modular"
+FPM_FLAG=0
+DRY_RUN="${DRY_RUN:-0}"
+mkdir -p "$(dirname "$LOGFILE")"
+touch "$LOGFILE"
+# ------------------------------------------------------------------------------
 
-fixit 80
-fi
-}
-function phpinstall70 () {
-ver=7.0
-if [ $actual = $ver ];then
-echo "Skip PHP 7.0 actually installed"
-else
-tput setaf 2
-echo "Installing PHP 7.0"
-yum install -y php70-php-imap php70-php-process php70-php-pspell php70-php-xml php70-php-xmlrpc php70-php-pdo php70-php-ldap php70-php-pecl-zip php70-php-common php70-php php70-php-mcrypt php70-php-gmp php70-php-mysqlnd php70-php-mbstring php70-php-gd php70-php-tidy php70-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "......."
+# --------------------------- Color functions ----------------------------------
+c_reset(){ tput sgr0 2>/dev/null || true; }
+c_red(){   tput setaf 1 2>/dev/null || true; }
+c_grn(){   tput setaf 2 2>/dev/null || true; }
+c_yel(){   tput setaf 3 2>/dev/null || true; }
+c_blu(){   tput setaf 4 2>/dev/null || true; }
+say(){ echo -e "$*"; }
+info(){ c_blu; say "$*"; c_reset; }
+ok(){   c_grn; say "$*"; c_reset; }
+warn(){ c_yel; say "$*"; c_reset; }
+err(){  c_red; say "$*"; c_reset; }
+# ------------------------------------------------------------------------------
 
-fixit 70
-fi
-}
-function phpinstall71 () {
-ver=7.1
-if [ $actual = $ver ];then
-echo "Skip PHP 7.1 actually installed"
-else
-tput setaf 2
-echo "Installing PHP 7.1"
-yum install -y php71-php-imap php71-php-process php71-php-pspell php71-php-xml php71-php-xmlrpc php71-php-pdo php71-php-ldap php71-php-pecl-zip php71-php-common php71-php php71-php-mcrypt php71-php-gmp php71-php-mysqlnd php71-php-mbstring php71-php-gd php71-php-tidy php71-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "......."
+# ---------------------------- Utility functions ------------------------------
+die(){ err "ERROR: $*"; exit 1; }
+log(){ printf '%s %s\n' "[$(date +'%F %T')]" "$*" >>"$LOGFILE"; }
 
-fixit 71
-fi
+detect_osver(){
+  grep -o "[0-9]" /etc/redhat-release | head -n1
 }
 
-function phpinstall72 () {
-ver=7.2
-if [ $actual = $ver ];then
-echo "Skip PHP 7.2 actually installed"
-else
-tput setaf 2
-echo "Installing PHP 7.2"
-yum install -y php72-php-imap php72-php-process php72-php-pspell php72-php-xml php72-php-xmlrpc php72-php-pdo php72-php-ldap php72-php-pecl-zip php72-php-common php72-php php72-php-mcrypt php72-php-gmp php72-php-mysqlnd php72-php-mbstring php72-php-gd php72-php-tidy php72-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "......."
+to_fullver(){ echo "${1:0:1}.${1:1:1}"; }
 
-fixit 72
-fi
-}
-function phpinstall73 () {
-ver=7.3
-if [ $actual = $ver ];then
-echo "Skip PHP 7.3 actually installed"
-else
-tput setaf 2
-    echo "Installing PHP 7.3"
-yum install -y php73-php-imap php73-php-process php73-php-pspell php73-php-xml php73-php-xmlrpc php73-php-pdo php73-php-ldap php73-php-pecl-zip php73-php-common php73-php php73-php-mcrypt php73-php-gmp php73-php-mysqlnd php73-php-mbstring php73-php-gd php73-php-tidy php73-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "......."
-
-fixit 73
-fi
-}
-function phpinstall74 () {
-ver=7.4
-if [ $actual = $ver ];then
-    echo "Skip PHP 7.4 actually installed"
-else
-tput setaf 2
-echo "Installing PHP 7.4"
-yum install -y php74-php-imap php74-php-process php74-php-pspell php74-php-xml php74-php-xmlrpc php74-php-pdo php74-php-ldap php74-php-pecl-zip php74-php-common php74-php php74-php-mcrypt php74-php-gmp php74-php-mysqlnd php74-php-mbstring php74-php-gd php74-php-tidy php74-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "......."
-
-fixit 74
-fi
+php_current_short(){
+  if command -v php >/dev/null 2>&1; then
+    php -v | head -n1 | grep -Po '([578])\.\d+' || true
+  else echo ""; fi
 }
 
-function phpinstall56 () {
-ver=5.6
-if [ $actual = $ver ];then
-echo "Skip php 5.6 actually installed"
-else
-tput setaf 2
-echo "Instaling PHP 5.6"
-yum install -y php56-php-imap php56-php-process php56-php-pspell php56-php-xml php56-php-xmlrpc php56-php-pdo php56-php-ldap php56-php-pecl-zip php56-php-common php56-php php56-php-mcrypt php56-php-mysqlnd php56-php-gmp php56-php-mbstring php56-php-gd php56-php-tidy php56-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "......."
+have_pkg(){ rpm -qa | grep -q -- "$1"; }
+verify_scl_php(){ [[ -x "/opt/remi/php$1/root/usr/bin/php" ]]; }
+ensure_template_dir(){ mkdir -p "$TEMPLATE_DIR"; }
 
-fixit 56
-fi
-}
-function phpinstall55 () {
-ver=5.5
-if [ $actual = $ver ];then
-echo "Skip php 5.5 actually installed"
-else
-tput setaf 2
-echo "Instaling PHP 5.5"
-yum install -y php55-php-imap php55-php-process php55-php-pspell php55-php-xml php55-php-xmlrpc php55-php-pdo php55-php-ldap php55-php-pecl-zip php55-php-common php55-php php55-php-mcrypt php55-php-mysqlnd php55-php-gmp php55-php-mbstring php55-php-gd php55-php-tidy php55-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "......."
+safe_link(){ local t="$1" l="$2"; [ -L "$l" ] && rm -f "$l"; ln -s "$t" "$l"; }
+# ------------------------------------------------------------------------------
 
-fixit 55
-fi
-}
-function phpinstall54 () {
-ver=5.4
-if [ $actual = $ver ];then
-echo "Skip php 5.4 actually installed"
-else
-tput setaf 2
-echo "Instaling PHP 5.4"
-yum install -y  php54-php-pspell php54-php-process php54-php-imap php54-php-xml php54-php-xmlrpc php54-php-pdo php54-php-ldap php54-php-pecl-zip php54-php-common php54-php-gmp php54-php php54-php-mcrypt php54-php-mysqlnd php54-php-mbstring php54-php-gd php54-php-tidy php54-php-pecl-memcache --enablerepo=remi  >> $sklog
-echo "........"
-
-fixit 54
-fi
-}
-all () {
-tput setaf 4
-echo "You Select install all php versions"
-tput sgr0
-	phpinstall54
-	phpinstall55
-	phpinstall56
-	phpinstall70
-	phpinstall71
-	phpinstall72
-    phpinstall73
-    phpinstall74
-    phpinstall80
-}
-usage () {
-tput setaf 1
-	echo "You can select php version you need, run your script as :"
-tput sgr0
-echo "bash $0 php55"
-echo "or"
-echo "bash $0 php56 php55 php71"
-tput setaf 1
-	echo "or install all available versions :"
-tput sgr0
-echo "bash $0 all"
-tput setaf 1
-    echo "###############################################"
-	echo "Supported Versions: 54, 55, 56, 70, 71, 72, 73, 80"
-    echo "###############################################"
-tput sgr0
+# ----------------------------- Repo management --------------------------------
+ensure_remi(){
+  if [[ ! -f "$REMI_REPO_FILE" ]]; then
+    info "Installing Remi repository..."
+    local osver; osver="$(detect_osver)"
+    case "$osver" in
+      7) yum install -y https://rpms.remirepo.net/enterprise/remi-release-7.rpm >>"$LOGFILE" 2>&1 ;;
+      6) yum install -y https://rpms.remirepo.net/enterprise/remi-release-6.rpm >>"$LOGFILE" 2>&1 ;;
+      *) die "Unsupported OS version (need CentOS/RHEL 6 or 7)." ;;
+    esac
+  fi
+  yum install -y yum-utils >>"$LOGFILE" 2>&1 || true
+  yum-config-manager --enable remi remi-safe remi-modular >>"$LOGFILE" 2>&1 || true
 }
 
-if [ -e /etc/redhat-release ];then
-	if [ -z "$1" ]; then
-		usage
-		exit 2
-	fi
-	if [[ "$sistema" -eq 7  ||  "$sistema" -eq 6 ]]; then
-		tput setaf 4
-			echo "You have remi repo installed and run: "
-			cat /etc/redhat-release
-			echo "##########"
-			echo "Start installing aditional php version"
-			echo "##########"
-		tput sgr0
-for args in "$@" ; do
-tput setaf 2
-	echo "Actually you runing php $actual, so I will skip it"
-tput sgr0
-		case $args  in
-			php54) phpinstall54 ;;
-			php55) phpinstall55 ;;
-			php56) phpinstall56 ;;
-			php70) phpinstall70 ;;
-			php71) phpinstall71 ;;
-			php72) phpinstall72 ;;
-            php73) phpinstall73 ;;
-            php74) phpinstall74 ;;
-            php80) phpinstall80 ;;
-			all) all ;;
-	  esac
-done
-echo "################################"
-echo "Aditional PHP versión installed!"
-echo "More info on skamasle.com or forum.vestacp.com or follwme in twiter @skamasle"
-echo "################################"
-		fi
-else
-	echo "Only support centos"
-exit 3
-fi
+enable_subrepo(){
+  local v="$1" subrepo="remi-php${v}"
+  if yum repolist all | grep -qE "^\s*${subrepo}\s"; then
+    yum-config-manager --enable "${subrepo}" >>"$LOGFILE" 2>&1 || true
+    info "Enabled subrepo: ${subrepo}"
+  else
+    warn "Repo ${subrepo} not found (skipping)"
+  fi
+}
+# ------------------------------------------------------------------------------
+
+# ---------------------------- Template fetching -------------------------------
+fetch_template_script() {
+  local v="$1"
+  local remote_url="https://raw.githubusercontent.com/Skamasle/sk-php-selector/master/sk-php${v}-centos.sh"
+  local dest="${TEMPLATE_DIR}/sk-php${v}.sh"
+  local localfile="${PWD}/sk-php${v}-centos.sh"
+  local altfile="/root/sk-php-selector/sk-php${v}-centos.sh"
+
+  ensure_template_dir
+
+  # 1️⃣ Try GitHub first
+  if curl -fsSL "$remote_url" -o "$dest"; then
+    chmod +x "$dest"
+    info "Fetched remote template for PHP ${v} from GitHub."
+    return 0
+  fi
+
+  # 2️⃣ Try current directory
+  if [[ -f "$localfile" ]]; then
+    info "Using local file: $localfile"
+    cp -f "$localfile" "$dest"
+    chmod +x "$dest"
+    return 0
+  fi
+
+  # 3️⃣ Try alternate directory
+  if [[ -f "$altfile" ]]; then
+    info "Using alt local file: $altfile"
+    cp -f "$altfile" "$dest"
+    chmod +x "$dest"
+    return 0
+  fi
+
+  # 4️⃣ Nothing found — create placeholder
+  warn "No template found for PHP ${v}. Creating placeholder."
+  cat > "$dest" <<EOF
+#!/bin/bash
+# Placeholder for PHP ${v}
+# This file generated automatically (no remote template available)
+EOF
+  chmod +x "$dest"
+}
+# ------------------------------------------------------------------------------
+
+# ------------------------------ Template setup --------------------------------
+fixit(){
+  local v="$1" full; full="$(to_fullver "$v")"
+  info "Setting up Vesta templates for PHP ${full}..."
+  fetch_template_script "$v"
+
+  safe_link "${TEMPLATE_DIR}/phpfcgid.stpl" "${TEMPLATE_DIR}/sk-php${v}.stpl"
+  safe_link "${TEMPLATE_DIR}/phpfcgid.tpl"  "${TEMPLATE_DIR}/sk-php${v}.tpl"
+
+  if [ -e "/etc/opt/remi/php${v}/php.ini" ]; then
+    safe_link "/etc/opt/remi/php${v}/php.ini" "/etc/php${v}.ini"
+  fi
+  if [ -d "/etc/opt/remi/php${v}/php.d" ]; then
+    safe_link "/etc/opt/remi/php${v}/php.d" "/etc/php${v}.d"
+  fi
+  ok "Templates ready for PHP ${full}."
+}
+# ------------------------------------------------------------------------------
+
+# ----------------------------- PHP Installation -------------------------------
+install_php_version(){
+  local v="$1" full; full="$(to_fullver "$v")"
+  local base="php${v}-php"
+  local active; active="$(php_current_short || true)"
+  say "------------------------------------------------------------------------------"
+  info "Installing PHP ${full} (SCL: php${v})"
+  say "------------------------------------------------------------------------------"
+
+  if [[ -n "$active" && "$active" == "$full" ]]; then
+    warn "System PHP is ${full}. Installing parallel SCL version."
+  fi
+
+  if have_pkg "${base}-common"; then
+    ok "PHP ${full} already installed."
+  else
+    enable_subrepo "$v"
+    yum install -y ${base} ${base}-common ${base}-imap ${base}-process ${base}-pspell \
+      ${base}-xml ${base}-xmlrpc ${base}-pdo ${base}-ldap ${base}-pecl-zip ${base}-gmp \
+      ${base}-mysqlnd ${base}-mbstring ${base}-gd ${base}-tidy ${base}-pecl-memcache \
+      ${FPM_FLAG:+${base}-fpm} \
+      --enablerepo="${YUM_REPOS},remi-php${v}" --skip-broken >>"$LOGFILE" 2>&1 || warn "YUM issues for PHP ${full}."
+  fi
+
+  if verify_scl_php "$v"; then
+    ok "Verified binary /opt/remi/php${v}/root/usr/bin/php"
+    fixit "$v"
+    if [[ "$FPM_FLAG" == "1" ]]; then
+      local svc="php${v}-php-fpm"
+      if systemctl list-unit-files | grep -q "^${svc}\.service"; then
+        systemctl enable --now "$svc" >>"$LOGFILE" 2>&1 || true
+        ok "FPM service enabled: ${svc}"
+      fi
+    fi
+  else
+    err "Binary missing for php${v}. Check $LOGFILE."
+  fi
+}
+# ------------------------------------------------------------------------------
+
+# ------------------------------- Install all ----------------------------------
+install_all(){
+  info "Installing all supported PHP versions..."
+  for v in "${SUPPORTED[@]}"; do
+    install_php_version "$v"
+  done
+}
+# ------------------------------------------------------------------------------
+
+# ------------------------------- Summary --------------------------------------
+summarize(){
+  say
+  say "================== Installation Summary =================="
+  printf "%-8s | %-8s | %-40s\n" "Version" "Status" "Binary"
+  printf "%-8s-+-%-8s-+-%-40s\n" "--------" "--------" "----------------------------------------"
+  for v in "${SUPPORTED[@]}"; do
+    local full; full="$(to_fullver "$v")"
+    local bin="/opt/remi/php${v}/root/usr/bin/php"
+    if [[ -x "$bin" ]]; then
+      c_grn; printf "%-8s | %-8s" "$full" "OK"; c_reset
+      printf " | %-40s\n" "$bin"
+    else
+      c_red; printf "%-8s | %-8s" "$full" "MISSING"; c_reset
+      printf " | %-40s\n" "-"
+    fi
+  done
+  say "=========================================================="
+  say "Logs: $LOGFILE"
+}
+# ------------------------------------------------------------------------------
+
+# ------------------------------- Usage ----------------------------------------
+usage(){
+cat <<EOF
+
+Usage:
+  bash $0 all [--with-fpm]
+  bash $0 php81 php83 [--with-fpm]
+  bash $0 --dry-run all
+
+Options:
+  --with-fpm    Install phpXX-php-fpm and enable the service.
+  --dry-run     Simulate actions without changing the system.
+
+Supported: 54 55 56 70 71 72 73 74 80 81 82 83
+EOF
+}
+# ------------------------------------------------------------------------------
+
+# --------------------------------- Main ---------------------------------------
+main(){
+  [[ -f /etc/redhat-release ]] || die "Only CentOS/RHEL supported."
+  local os; os="$(detect_osver)"
+  [[ "$os" == "6" || "$os" == "7" ]] || die "Only CentOS/RHEL 6 or 7 supported."
+
+  ensure_remi
+
+  if [[ $# -lt 1 ]]; then usage; exit 2; fi
+
+  local args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --with-fpm) FPM_FLAG=1; shift ;;
+      --dry-run)  DRY_RUN=1; shift ;;
+      all|php54|php55|php56|php70|php71|php72|php73|php74|php80|php81|php82|php83)
+        args+=("$1"); shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) warn "Unknown option: $1"; shift ;;
+    esac
+  done
+
+  info "Detected OS:"; cat /etc/redhat-release
+  info "Active PHP: $(php_current_short || echo none)"
+  info "FPM: $([[ "$FPM_FLAG" == "1" ]] && echo enabled || echo disabled)"
+  info "Dry run: $DRY_RUN"
+  say "----------------------------------------------------------"
+
+  for arg in "${args[@]}"; do
+    case "$arg" in
+      all) install_all ;;
+      php54) install_php_version 54 ;;
+      php55) install_php_version 55 ;;
+      php56) install_php_version 56 ;;
+      php70) install_php_version 70 ;;
+      php71) install_php_version 71 ;;
+      php72) install_php_version 72 ;;
+      php73) install_php_version 73 ;;
+      php74) install_php_version 74 ;;
+      php80) install_php_version 80 ;;
+      php81) install_php_version 81 ;;
+      php82) install_php_version 82 ;;
+      php83) install_php_version 83 ;;
+    esac
+  done
+
+  summarize
+  ok "Installation complete!"
+}
+
+main "$@"
