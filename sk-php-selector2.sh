@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantin — version 1.3 (Stable, 300 lines)
+# Extended & Hardened by Konstantinos Vlachos — version 1.3
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
