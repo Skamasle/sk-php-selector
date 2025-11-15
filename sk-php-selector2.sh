@@ -1,17 +1,16 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 1.3
+# Extended & Hardened by Konstantinos Vlachos — version 1.4 (Stable)
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
+#   - Preserves system PHP (/usr/bin/php)
+#   - Installs parallel SCL versions only (phpXX-php)
 #   - Auto-installs Remi repo if missing
-#   - Verifies installation via /opt/remi/phpXX/root/usr/bin/php
-#   - Fetches Vesta templates from GitHub if available
-#   - Falls back to local file if remote fetch fails
-#   - Creates clean /etc/phpXX.ini & /etc/phpXX.d symlinks
-#   - Optional FPM support (--with-fpm)
-#   - Safe for repeated runs (idempotent)
+#   - Fetches Vesta templates from GitHub, fallback to local or placeholder
+#   - Safe re-run (idempotent)
+#   - Optional --with-fpm flag to install phpXX-php-fpm and enable service
 # ==============================================================================
 
 set -euo pipefail
@@ -45,22 +44,12 @@ err(){  c_red; say "$*"; c_reset; }
 die(){ err "ERROR: $*"; exit 1; }
 log(){ printf '%s %s\n' "[$(date +'%F %T')]" "$*" >>"$LOGFILE"; }
 
-detect_osver(){
-  grep -o "[0-9]" /etc/redhat-release | head -n1
-}
-
+detect_osver(){ grep -o "[0-9]" /etc/redhat-release | head -n1; }
 to_fullver(){ echo "${1:0:1}.${1:1:1}"; }
-
-php_current_short(){
-  if command -v php >/dev/null 2>&1; then
-    php -v | head -n1 | grep -Po '([578])\.\d+' || true
-  else echo ""; fi
-}
-
+php_current_short(){ php -v 2>/dev/null | head -n1 | grep -Po '([578])\.\d+' || true; }
 have_pkg(){ rpm -qa | grep -q -- "$1"; }
 verify_scl_php(){ [[ -x "/opt/remi/php$1/root/usr/bin/php" ]]; }
 ensure_template_dir(){ mkdir -p "$TEMPLATE_DIR"; }
-
 safe_link(){ local t="$1" l="$2"; [ -L "$l" ] && rm -f "$l"; ln -s "$t" "$l"; }
 # ------------------------------------------------------------------------------
 
@@ -107,7 +96,7 @@ fetch_template_script() {
     return 0
   fi
 
-  # 2️⃣ Try current directory
+  # 2️⃣ Try local fallback
   if [[ -f "$localfile" ]]; then
     info "Using local file: $localfile"
     cp -f "$localfile" "$dest"
@@ -115,7 +104,7 @@ fetch_template_script() {
     return 0
   fi
 
-  # 3️⃣ Try alternate directory
+  # 3️⃣ Try alternate location
   if [[ -f "$altfile" ]]; then
     info "Using alt local file: $altfile"
     cp -f "$altfile" "$dest"
@@ -123,12 +112,12 @@ fetch_template_script() {
     return 0
   fi
 
-  # 4️⃣ Nothing found — create placeholder
+  # 4️⃣ No luck — create placeholder
   warn "No template found for PHP ${v}. Creating placeholder."
   cat > "$dest" <<EOF
 #!/bin/bash
 # Placeholder for PHP ${v}
-# This file generated automatically (no remote template available)
+# This file generated automatically (no remote or local version found)
 EOF
   chmod +x "$dest"
 }
@@ -137,7 +126,7 @@ EOF
 # ------------------------------ Template setup --------------------------------
 fixit(){
   local v="$1" full; full="$(to_fullver "$v")"
-  info "Setting up Vesta templates for PHP ${full}..."
+  info "Configuring Vesta templates for PHP ${full}..."
   fetch_template_script "$v"
 
   safe_link "${TEMPLATE_DIR}/phpfcgid.stpl" "${TEMPLATE_DIR}/sk-php${v}.stpl"
@@ -159,32 +148,39 @@ install_php_version(){
   local base="php${v}-php"
   local active; active="$(php_current_short || true)"
   say "------------------------------------------------------------------------------"
-  info "Installing PHP ${full} (SCL: php${v})"
+  info "Installing SCL PHP ${full} (php${v}) — keeping system PHP intact"
   say "------------------------------------------------------------------------------"
 
+  # ✅ Prevent upgrading the system PHP
+  yum-config-manager --disable remi-php* >>"$LOGFILE" 2>&1 || true
+
   if [[ -n "$active" && "$active" == "$full" ]]; then
-    warn "System PHP is ${full}. Installing parallel SCL version."
+    warn "System PHP is ${full}. Will not modify system PHP packages."
   fi
 
   if have_pkg "${base}-common"; then
-    ok "PHP ${full} already installed."
+    ok "PHP ${full} already installed under /opt/remi/php${v}/"
   else
     enable_subrepo "$v"
-    yum install -y ${base} ${base}-common ${base}-imap ${base}-process ${base}-pspell \
-      ${base}-xml ${base}-xmlrpc ${base}-pdo ${base}-ldap ${base}-pecl-zip ${base}-gmp \
-      ${base}-mysqlnd ${base}-mbstring ${base}-gd ${base}-tidy ${base}-pecl-memcache \
+    yum install -y \
+      ${base} ${base}-common ${base}-imap ${base}-process ${base}-pspell \
+      ${base}-xml ${base}-xmlrpc ${base}-pdo ${base}-ldap ${base}-pecl-zip \
+      ${base}-gmp ${base}-mysqlnd ${base}-mbstring ${base}-gd ${base}-tidy \
+      ${base}-pecl-memcache \
       ${FPM_FLAG:+${base}-fpm} \
-      --enablerepo="${YUM_REPOS},remi-php${v}" --skip-broken >>"$LOGFILE" 2>&1 || warn "YUM issues for PHP ${full}."
+      --disablerepo='remi-php*,base,updates,extras' \
+      --enablerepo="remi,remi-safe,remi-modular,remi-php${v}" \
+      --skip-broken >>"$LOGFILE" 2>&1 || warn "YUM issues installing PHP ${full}."
   fi
 
   if verify_scl_php "$v"; then
-    ok "Verified binary /opt/remi/php${v}/root/usr/bin/php"
+    ok "Verified SCL binary: /opt/remi/php${v}/root/usr/bin/php"
     fixit "$v"
     if [[ "$FPM_FLAG" == "1" ]]; then
       local svc="php${v}-php-fpm"
       if systemctl list-unit-files | grep -q "^${svc}\.service"; then
         systemctl enable --now "$svc" >>"$LOGFILE" 2>&1 || true
-        ok "FPM service enabled: ${svc}"
+        ok "Enabled FPM service: ${svc}"
       fi
     fi
   else
