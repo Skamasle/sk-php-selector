@@ -96,7 +96,7 @@ enable_subrepo(){
 # ---------------------------- Template fetching -------------------------------
 fetch_template_script() {
   local v="$1"
-  local remote_url="https://raw.githubusercontent.com/samaphp/sk-php-selector/master/sk-php${v}-centos.sh"
+  local remote_url="https://raw.githubusercontent.com/Skamasle/sk-php-selector/master/sk-php${v}-centos.sh"
   local dest="${TEMPLATE_DIR}/sk-php${v}.sh"
   local localfile="${PWD}/sk-php${v}-centos.sh"
   local altfile="/root/sk-php-selector/sk-php${v}-centos.sh"
