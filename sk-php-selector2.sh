@@ -1,12 +1,12 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 1.4 (Stable)
+# Extended & Hardened by Konstantinos Vlachos — version 1.5 (Stable)
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
-#   - Preserves system PHP (/usr/bin/php)
-#   - Installs parallel SCL versions only (phpXX-php)
+#   - Preserves system PHP (/usr/bin/php) – no upgrades, no replacements
+#   - Installs only parallel SCL versions (phpXX-php) under /opt/remi/phpXX/
 #   - Auto-installs Remi repo if missing
 #   - Fetches Vesta templates from GitHub, fallback to local or placeholder
 #   - Safe re-run (idempotent)
@@ -20,9 +20,9 @@ LOGFILE="/var/log/skphp.log"
 TEMPLATE_DIR="/usr/local/vesta/data/templates/web/httpd"
 REMI_REPO_FILE="/etc/yum.repos.d/remi.repo"
 SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83)
-YUM_REPOS="remi,remi-safe,remi-modular"
 FPM_FLAG=0
 DRY_RUN="${DRY_RUN:-0}"
+
 mkdir -p "$(dirname "$LOGFILE")"
 touch "$LOGFILE"
 # ------------------------------------------------------------------------------
@@ -46,11 +46,24 @@ log(){ printf '%s %s\n' "[$(date +'%F %T')]" "$*" >>"$LOGFILE"; }
 
 detect_osver(){ grep -o "[0-9]" /etc/redhat-release | head -n1; }
 to_fullver(){ echo "${1:0:1}.${1:1:1}"; }
-php_current_short(){ php -v 2>/dev/null | head -n1 | grep -Po '([578])\.\d+' || true; }
+
+php_current_short(){
+  if command -v php >/dev/null 2>&1; then
+    php -v 2>/dev/null | head -n1 | grep -Po '([578])\.\d+' || true
+  else
+    echo ""
+  fi
+}
+
 have_pkg(){ rpm -qa | grep -q -- "$1"; }
 verify_scl_php(){ [[ -x "/opt/remi/php$1/root/usr/bin/php" ]]; }
 ensure_template_dir(){ mkdir -p "$TEMPLATE_DIR"; }
-safe_link(){ local t="$1" l="$2"; [ -L "$l" ] && rm -f "$l"; ln -s "$t" "$l"; }
+
+safe_link(){
+  local t="$1" l="$2"
+  [ -L "$l" ] && rm -f "$l"
+  ln -s "$t" "$l"
+}
 # ------------------------------------------------------------------------------
 
 # ----------------------------- Repo management --------------------------------
@@ -65,6 +78,7 @@ ensure_remi(){
     esac
   fi
   yum install -y yum-utils >>"$LOGFILE" 2>&1 || true
+  # Enable base Remi collections (NOT remi-phpXX by default)
   yum-config-manager --enable remi remi-safe remi-modular >>"$LOGFILE" 2>&1 || true
 }
 
@@ -74,7 +88,7 @@ enable_subrepo(){
     yum-config-manager --enable "${subrepo}" >>"$LOGFILE" 2>&1 || true
     info "Enabled subrepo: ${subrepo}"
   else
-    warn "Repo ${subrepo} not found (skipping)"
+    warn "Repo ${subrepo} not found (skipping; assuming packages already present)"
   fi
 }
 # ------------------------------------------------------------------------------
@@ -96,7 +110,7 @@ fetch_template_script() {
     return 0
   fi
 
-  # 2️⃣ Try local fallback
+  # 2️⃣ Try local fallback (current directory)
   if [[ -f "$localfile" ]]; then
     info "Using local file: $localfile"
     cp -f "$localfile" "$dest"
@@ -104,7 +118,7 @@ fetch_template_script() {
     return 0
   fi
 
-  # 3️⃣ Try alternate location
+  # 3️⃣ Try alternate fallback (/root/sk-php-selector/)
   if [[ -f "$altfile" ]]; then
     info "Using alt local file: $altfile"
     cp -f "$altfile" "$dest"
@@ -147,29 +161,33 @@ install_php_version(){
   local v="$1" full; full="$(to_fullver "$v")"
   local base="php${v}-php"
   local active; active="$(php_current_short || true)"
+
   say "------------------------------------------------------------------------------"
   info "Installing SCL PHP ${full} (php${v}) — keeping system PHP intact"
   say "------------------------------------------------------------------------------"
 
-  # ✅ Prevent upgrading the system PHP
+  # ✅ Hard-protect base PHP from Remi (do not upgrade php/php-cli/etc)
   yum-config-manager --disable remi-php* >>"$LOGFILE" 2>&1 || true
 
-  if [[ -n "$active" && "$active" == "$full" ]]; then
-    warn "System PHP is ${full}. Will not modify system PHP packages."
+  if [[ -n "$active" ]]; then
+    info "Current system PHP is ${active} (will NOT be touched)."
   fi
 
   if have_pkg "${base}-common"; then
     ok "PHP ${full} already installed under /opt/remi/php${v}/"
   else
     enable_subrepo "$v"
+    # Install ONLY SCL packages - never base 'php'
     yum install -y \
-      ${base} ${base}-common ${base}-imap ${base}-process ${base}-pspell \
-      ${base}-xml ${base}-xmlrpc ${base}-pdo ${base}-ldap ${base}-pecl-zip \
-      ${base}-gmp ${base}-mysqlnd ${base}-mbstring ${base}-gd ${base}-tidy \
-      ${base}-pecl-memcache \
-      ${FPM_FLAG:+${base}-fpm} \
-      --disablerepo='remi-php*,base,updates,extras' \
+      php${v}-php \
+      php${v}-php-cli php${v}-php-common php${v}-php-gd php${v}-php-mbstring \
+      php${v}-php-mysqlnd php${v}-php-pdo php${v}-php-xml php${v}-php-zip \
+      php${v}-php-opcache php${v}-php-xmlrpc php${v}-php-soap \
+      ${FPM_FLAG:+php${v}-php-fpm} \
+      --setopt=tsflags=nodocs \
+      --disablerepo='remi-php*' \
       --enablerepo="remi,remi-safe,remi-modular,remi-php${v}" \
+      --exclude='php,php-cli,php-common,php-fpm,php-mysqlnd,php-pdo,php-gd,php-xml,php-mbstring' \
       --skip-broken >>"$LOGFILE" 2>&1 || warn "YUM issues installing PHP ${full}."
   fi
 
@@ -181,6 +199,8 @@ install_php_version(){
       if systemctl list-unit-files | grep -q "^${svc}\.service"; then
         systemctl enable --now "$svc" >>"$LOGFILE" 2>&1 || true
         ok "Enabled FPM service: ${svc}"
+      else
+        warn "No systemd service found for ${svc} (php-fpm not available for this version?)"
       fi
     fi
   else
@@ -227,13 +247,15 @@ cat <<EOF
 Usage:
   bash $0 all [--with-fpm]
   bash $0 php81 php83 [--with-fpm]
-  bash $0 --dry-run all
 
 Options:
   --with-fpm    Install phpXX-php-fpm and enable the service.
-  --dry-run     Simulate actions without changing the system.
 
 Supported: 54 55 56 70 71 72 73 74 80 81 82 83
+
+Notes:
+  - System PHP (/usr/bin/php) is never upgraded or replaced by this script.
+  - Extra PHP versions are installed as SCL under /opt/remi/phpXX/root/usr/bin/php.
 EOF
 }
 # ------------------------------------------------------------------------------
@@ -252,7 +274,6 @@ main(){
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --with-fpm) FPM_FLAG=1; shift ;;
-      --dry-run)  DRY_RUN=1; shift ;;
       all|php54|php55|php56|php70|php71|php72|php73|php74|php80|php81|php82|php83)
         args+=("$1"); shift ;;
       -h|--help) usage; exit 0 ;;
@@ -261,9 +282,8 @@ main(){
   done
 
   info "Detected OS:"; cat /etc/redhat-release
-  info "Active PHP: $(php_current_short || echo none)"
-  info "FPM: $([[ "$FPM_FLAG" == "1" ]] && echo enabled || echo disabled)"
-  info "Dry run: $DRY_RUN"
+  info "Active system PHP: $(php_current_short || echo none)"
+  info "FPM install: $([[ "$FPM_FLAG" == "1" ]] && echo enabled || echo disabled)"
   say "----------------------------------------------------------"
 
   for arg in "${args[@]}"; do
