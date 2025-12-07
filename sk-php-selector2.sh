@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 1.7 (Stable + Force)
+# Extended & Hardened by Konstantinos Vlachos — version 1.8 (Stable + Force Reinstall)
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
@@ -11,7 +11,7 @@
 #   - Fetches Vesta templates from GitHub, fallback to local or placeholder
 #   - Safe re-run (idempotent)
 #   - Optional --with-fpm flag to install phpXX-php-fpm and enable service
-#   - ✅ New: --force runs safe yum repair, refreshes templates & restarts FPM
+#   - ✅ New: --force runs yum --reinstall, refreshes templates & restarts FPM
 # ==============================================================================
 
 set -euo pipefail
@@ -175,12 +175,19 @@ install_php_version(){
     info "Current system PHP is ${active} (will NOT be touched)."
   fi
 
-  if have_pkg "${base}-common"; then
+  enable_subrepo "$v"
+
+  if have_pkg "${base}-common" && [[ "$FORCE_FLAG" != "1" ]]; then
     ok "PHP ${full} already installed under /opt/remi/php${v}/"
   else
-    [[ "$FORCE_FLAG" == "1" ]] && warn "FORCE mode: Repairing PHP ${full}"
+    if [[ "$FORCE_FLAG" == "1" ]]; then
+      warn "FORCE mode: Reinstalling PHP ${full} packages"
+      YUM_MODE="--reinstall"
+    else
+      YUM_MODE=""
+    fi
 
-    yum install -y \
+    yum install $YUM_MODE -y \
       php${v}-php \
       php${v}-php-cli php${v}-php-common php${v}-php-gd php${v}-php-mbstring \
       php${v}-php-mysqlnd php${v}-php-pdo php${v}-php-xml php${v}-php-zip \
@@ -251,7 +258,7 @@ Usage:
 
 Options:
   --with-fpm    Install phpXX-php-fpm and enable the service.
-  --force       Safe yum repair + refresh templates + restart FPM
+  --force       Run yum --reinstall, refresh templates & restart FPM
 
 Supported: 54 55 56 70 71 72 73 74 80 81 82 83
 
@@ -273,6 +280,7 @@ main(){
   if [[ $# -lt 1 ]]; then usage; exit 2; fi
 
   local args=()
+
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --with-fpm) FPM_FLAG=1; shift ;;
@@ -283,6 +291,12 @@ main(){
       *) warn "Unknown option: $1"; shift ;;
     esac
   done
+
+  if [[ "${#args[@]}" -eq 0 ]]; then
+    warn "No PHP versions specified."
+    usage
+    exit 2
+  fi
 
   info "Detected OS:"; cat /etc/redhat-release
   info "Active system PHP: $(php_current_short || echo none)"
