@@ -1,17 +1,19 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 2.0 (Force Reinstall + Repo Fix)
+# Extended & Hardened by Konstantinos Vlachos — version 3.0
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
 #   - Preserves system PHP (/usr/bin/php) – no upgrades, no replacements
-#   - Installs only parallel SCL versions (phpXX-php) under /opt/remi/phpXX/
+#   - Installs parallel SCL versions (phpXX-php) under /opt/remi/phpXX/
 #   - Auto-installs Remi repo if missing
-#   - Fetches Vesta templates from GitHub, fallback to local or placeholder
+#   - Fetches Vesta templates from GitHub, fallback to placeholder
 #   - Safe re-run (idempotent)
-#   - Optional --with-fpm flag to install phpXX-php-fpm and enable service
-#   - ✅ --force runs yum --reinstall, refreshes templates & restarts FPM
+#   - Flags:
+#       --with-fpm     Install phpXX-php-fpm and restart service when done
+#       --with-extras  Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip)
+#       --force        Reinstall packages, merge .rpmnew configs, restart FPM
 # ==============================================================================
 
 set -euo pipefail
@@ -21,9 +23,10 @@ LOGFILE="/var/log/skphp.log"
 TEMPLATE_DIR="/usr/local/vesta/data/templates/web/httpd"
 REMI_REPO_FILE="/etc/yum.repos.d/remi.repo"
 SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83)
+
 FPM_FLAG=0
 FORCE_FLAG=0
-DRY_RUN="${DRY_RUN:-0}"
+INCLUDE_EXTRAS=0
 
 mkdir -p "$(dirname "$LOGFILE")"
 touch "$LOGFILE"
@@ -90,7 +93,7 @@ enable_subrepo(){
   local subrepo="remi-php${v}"
 
   yum-config-manager --enable "${subrepo}" >>"$LOGFILE" 2>&1 || true
-  info "Requested repo enable: ${subrepo}"
+  info "Enabled subrepo: ${subrepo}"
 }
 # ------------------------------------------------------------------------------
 
@@ -108,33 +111,15 @@ fetch_template_script() {
   if curl -fsSL "$remote_url" -o "$dest"; then
     chmod +x "$dest"
     info "Fetched remote template for PHP ${v} from GitHub."
-    return 0
-  fi
-
-  # 2️⃣ Try local fallback (current directory)
-  if [[ -f "$localfile" ]]; then
-    info "Using local file: $localfile"
-    cp -f "$localfile" "$dest"
-    chmod +x "$dest"
-    return 0
-  fi
-
-  # 3️⃣ Try alternate fallback (/root/sk-php-selector/)
-  if [[ -f "$altfile" ]]; then
-    info "Using alt local file: $altfile"
-    cp -f "$altfile" "$dest"
-    chmod +x "$dest"
-    return 0
-  fi
-
-  # 4️⃣ No luck — create placeholder
-  warn "No template found for PHP ${v}. Creating placeholder."
-  cat > "$dest" <<EOF
+  else
+    warn "No template found for PHP ${v}. Creating placeholder."
+    cat > "$dest" <<EOF
 #!/bin/bash
 # Placeholder for PHP ${v}
 # This file generated automatically (no remote or local version found)
 EOF
-  chmod +x "$dest"
+    chmod +x "$dest"
+  fi
 }
 # ------------------------------------------------------------------------------
 
@@ -164,14 +149,14 @@ install_php_version(){
   local active; active="$(php_current_short || true)"
 
   say "------------------------------------------------------------------------------"
-  info "Installing SCL PHP ${full} (php${v}) — keeping system PHP intact"
+  info "Installing PHP ${full} (php${v}) — system PHP remains unchanged"
   say "------------------------------------------------------------------------------"
 
-  # Protect base PHP from Remi (do not upgrade system php/php-cli/etc)
+  # Protect system PHP from unintended upgrades
   yum-config-manager --disable remi-php* >>"$LOGFILE" 2>&1 || true
 
   if [[ -n "$active" ]]; then
-    info "Current system PHP is ${active} (will NOT be touched)."
+    info "Current system PHP: ${active}"
   fi
 
   enable_subrepo "$v"
@@ -190,15 +175,38 @@ install_php_version(){
       YUM_CMD="yum install -y"
     fi
 
-    # Install or reinstall all relevant php${v} packages
-    $YUM_CMD php${v}-php\* \
+    # Core modules (always installed; includes ownCloud required ones)
+    local core_modules=(
+      php${v}-php php${v}-php-cli php${v}-php-common
+      php${v}-php-gd php${v}-php-intl php${v}-php-mbstring
+      php${v}-php-process php${v}-php-xml php${v}-php-pdo
+      php${v}-php-mysqlnd php${v}-php-zip php${v}-php-opcache
+      php${v}-php-soap php${v}-php-xmlrpc php${v}-php-pecl-apcu
+    )
+
+    # Extra modules (optional / legacy / specialized)
+    local extra_modules=(
+      php${v}-php-pspell php${v}-php-imap php${v}-php-ldap
+      php${v}-php-pecl-zip php${v}-php-gmp php${v}-php-tidy
+      php${v}-php-pecl-memcache
+    )
+
+    local packages=("${core_modules[@]}")
+    if [[ "$INCLUDE_EXTRAS" == "1" ]]; then
+      packages+=("${extra_modules[@]}")
+    fi
+    if [[ "$FPM_FLAG" == "1" ]]; then
+      packages+=(php${v}-php-fpm)
+    fi
+
+    $YUM_CMD "${packages[@]}" \
       --setopt=tsflags=nodocs \
       --disablerepo='remi-php*' \
       --enablerepo="remi,remi-safe,remi-modular,remi-php${v}" \
-      --exclude='php,php-cli,php-common,php-fpm,php-mysqlnd,php-pdo,php-gd,php-xml,php-mbstring' \
+      --exclude='php php-cli php-common php-fpm php-mysqlnd php-pdo php-gd php-xml php-mbstring' \
       --skip-broken >>"$LOGFILE" 2>&1
 
-    # Merge any .rpmnew configs automatically
+    # Merge any .rpmnew configs automatically (e.g., APCu)
     for f in /etc/opt/remi/php${v}/php.d/*.rpmnew; do
       [ -f "$f" ] || continue
       mv -f "$f" "${f%.rpmnew}"
@@ -220,9 +228,8 @@ install_php_version(){
     else
       err "Binary missing for php${v}. Check $LOGFILE."
     fi
-  fi   # <-- closes the outer if/else
-}      # <-- closes the function
-# ------------------------------------------------------------------------------
+  fi
+}
 
 # ------------------------------- Install all ----------------------------------
 install_all(){
@@ -236,22 +243,22 @@ install_all(){
 # ------------------------------- Summary --------------------------------------
 summarize(){
   say
-  say "================== Installation Summary =================="
-  printf "%-8s | %-8s | %-40s\n" "Version" "Status" "Binary"
-  printf "%-8s-+-%-8s-+-%-40s\n" "--------" "--------" "----------------------------------------"
+  say "====================== Installation summary ======================"
+  printf "%-12s | %-8s | %-45s\n" "PHP version" "Status" "Binary path"
+  printf "%-12s-+-%-8s-+-%-45s\n" "------------" "--------" "---------------------------------------------"
   for v in "${SUPPORTED[@]}"; do
     local full; full="$(to_fullver "$v")"
     local bin="/opt/remi/php${v}/root/usr/bin/php"
     if [[ -x "$bin" ]]; then
-      c_grn; printf "%-8s | %-8s" "$full" "OK"; c_reset
-      printf " | %-40s\n" "$bin"
+      c_grn; printf "%-12s | %-8s" "$full" "OK"; c_reset
+      printf " | %-45s\n" "$bin"
     else
-      c_red; printf "%-8s | %-8s" "$full" "MISSING"; c_reset
-      printf " | %-40s\n" "-"
+      c_red; printf "%-12s | %-8s" "$full" "MISSING"; c_reset
+      printf " | %-45s\n" "-"
     fi
   done
-  say "=========================================================="
-  say "Logs: $LOGFILE"
+  say "=================================================================="
+  say "Log file: $LOGFILE"
 }
 # ------------------------------------------------------------------------------
 
@@ -260,18 +267,20 @@ usage(){
 cat <<EOF
 
 Usage:
-  bash $0 all [--with-fpm] [--force]
-  bash $0 php81 php83 [--with-fpm] [--force]
+  bash $0 all [--with-fpm] [--with-extras] [--force]
+  bash $0 php74 [--with-fpm] [--with-extras] [--force]
+  bash $0 php81 php83 [--with-fpm] [--with-extras] [--force]
 
 Options:
-  --with-fpm    Install phpXX-php-fpm and enable the service.
-  --force       Run yum reinstall, refresh templates & restart FPM
+  --with-fpm     Install phpXX-php-fpm and restart the service if present.
+  --with-extras  Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip).
+  --force        Reinstall all phpXX packages, merge .rpmnew configs, restart FPM.
 
-Supported: 54 55 56 70 71 72 73 74 80 81 82 83
+Supported versions: 54 55 56 70 71 72 73 74 80 81 82 83
 
 Notes:
   - System PHP (/usr/bin/php) is never upgraded or replaced by this script.
-  - Extra PHP versions are installed as SCL under /opt/remi/phpXX/root/usr/bin/php.
+  - Additional PHP versions are installed under /opt/remi/phpXX/root/usr/bin/php (SCL).
 EOF
 }
 # ------------------------------------------------------------------------------
@@ -291,11 +300,12 @@ main(){
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --with-fpm) FPM_FLAG=1; shift ;;
+      --with-extras) INCLUDE_EXTRAS=1; shift ;;
       --force) FORCE_FLAG=1; shift ;;
       all|php54|php55|php56|php70|php71|php72|php73|php74|php80|php81|php82|php83)
         args+=("$1"); shift ;;
       -h|--help) usage; exit 0 ;;
-      *) warn "⚠️ Ignoring unknown option: $1"; shift ;;
+      *) warn "Ignoring unknown option: $1"; shift ;;
     esac
   done
 
@@ -307,32 +317,33 @@ main(){
 
   say "=========================================================="
   info "System check:"
-  say "  • OS version: CentOS/RHEL $os"
-  say "  • Active system PHP: $(php_current_short || echo none)"
-  say "  • FPM install requested: $([[ "$FPM_FLAG" == "1" ]] && echo Yes || echo No)"
-  say "  • Force reinstall mode: $([[ "$FORCE_FLAG" == "1" ]] && echo Yes || echo No)"
+  say "  • Operating system version: CentOS/RHEL $os"
+  say "  • Current system PHP version: $(php_current_short || echo none)"
+  say "  • PHP-FPM installation: $([[ "$FPM_FLAG" == "1" ]] && echo enabled || echo disabled)"
+  say "  • Extra modules installation: $([[ "$INCLUDE_EXTRAS" == "1" ]] && echo enabled || echo disabled)"
+  say "  • Force reinstall option: $([[ "$FORCE_FLAG" == "1" ]] && echo enabled || echo disabled)"
   say "=========================================================="
 
   for arg in "${args[@]}"; do
     case "$arg" in
-      all) info "➡ Installing all supported PHP versions..."; install_all ;;
-      php54) info "➡ Installing PHP 5.4 (SCL)..."; install_php_version 54 ;;
-      php55) info "➡ Installing PHP 5.5 (SCL)..."; install_php_version 55 ;;
-      php56) info "➡ Installing PHP 5.6 (SCL)..."; install_php_version 56 ;;
-      php70) info "➡ Installing PHP 7.0 (SCL)..."; install_php_version 70 ;;
-      php71) info "➡ Installing PHP 7.1 (SCL)..."; install_php_version 71 ;;
-      php72) info "➡ Installing PHP 7.2 (SCL)..."; install_php_version 72 ;;
-      php73) info "➡ Installing PHP 7.3 (SCL)..."; install_php_version 73 ;;
-      php74) info "➡ Installing PHP 7.4 (SCL)..."; install_php_version 74 ;;
-      php80) info "➡ Installing PHP 8.0 (SCL)..."; install_php_version 80 ;;
-      php81) info "➡ Installing PHP 8.1 (SCL)..."; install_php_version 81 ;;
-      php82) info "➡ Installing PHP 8.2 (SCL)..."; install_php_version 82 ;;
-      php83) info "➡ Installing PHP 8.3 (SCL)..."; install_php_version 83 ;;
+      all) info "Starting installation of all supported PHP versions..."; install_all ;;
+      php54) info "Beginning installation of PHP 5.4 (Software Collections)..."; install_php_version 54 ;;
+      php55) info "Beginning installation of PHP 5.5 (Software Collections)..."; install_php_version 55 ;;
+      php56) info "Beginning installation of PHP 5.6 (Software Collections)..."; install_php_version 56 ;;
+      php70) info "Beginning installation of PHP 7.0 (Software Collections)..."; install_php_version 70 ;;
+      php71) info "Beginning installation of PHP 7.1 (Software Collections)..."; install_php_version 71 ;;
+      php72) info "Beginning installation of PHP 7.2 (Software Collections)..."; install_php_version 72 ;;
+      php73) info "Beginning installation of PHP 7.3 (Software Collections)..."; install_php_version 73 ;;
+      php74) info "Beginning installation of PHP 7.4 (Software Collections)..."; install_php_version 74 ;;
+      php80) info "Beginning installation of PHP 8.0 (Software Collections)..."; install_php_version 80 ;;
+      php81) info "Beginning installation of PHP 8.1 (Software Collections)..."; install_php_version 81 ;;
+      php82) info "Beginning installation of PHP 8.2 (Software Collections)..."; install_php_version 82 ;;
+      php83) info "Beginning installation of PHP 8.3 (Software Collections)..."; install_php_version 83 ;;
     esac
   done
 
   summarize
-  ok "✅ All requested installations complete!"
+  ok "✅ Installation complete: all requested PHP versions have been processed successfully."
 }
 
 main "$@"
