@@ -263,7 +263,7 @@ Usage:
 
 Options:
   --with-fpm    Install phpXX-php-fpm and enable the service.
-  --force       Run yum --reinstall, refresh templates & restart FPM
+  --force       Run yum reinstall, refresh templates & restart FPM
 
 Supported: 54 55 56 70 71 72 73 74 80 81 82 83
 
