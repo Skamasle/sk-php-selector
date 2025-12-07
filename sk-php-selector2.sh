@@ -191,35 +191,36 @@ install_php_version(){
       YUM_CMD="yum install -y"
     fi
 
-    $YUM_CMD \
-      php${v}-php \
-      php${v}-php-cli php${v}-php-common php${v}-php-gd php${v}-php-mbstring \
-      php${v}-php-mysqlnd php${v}-php-pdo php${v}-php-xml php${v}-php-zip \
-      php${v}-php-opcache php${v}-php-xmlrpc php${v}-php-soap php${v}-php-pecl-apcu \
-      php${v}-php-intl php${v}-php-process \
-      ${FPM_FLAG:+php${v}-php-fpm} \
+    # Install or reinstall all relevant php${v} packages
+    $YUM_CMD php${v}-php\* \
       --setopt=tsflags=nodocs \
       --disablerepo='remi-php*' \
       --enablerepo="remi,remi-safe,remi-modular,remi-php${v}" \
       --exclude='php,php-cli,php-common,php-fpm,php-mysqlnd,php-pdo,php-gd,php-xml,php-mbstring' \
       --skip-broken >>"$LOGFILE" 2>&1
-  fi
 
+    # Merge any .rpmnew configs automatically
+    for f in /etc/opt/remi/php${v}/php.d/*.rpmnew; do
+      [ -f "$f" ] || continue
+      mv -f "$f" "${f%.rpmnew}"
+      ok "Merged rpmnew config: ${f%.rpmnew}"
+    done
 
-  if verify_scl_php "$v"; then
-    ok "Verified SCL binary: /opt/remi/php${v}/root/usr/bin/php"
-    fixit "$v"
+    if verify_scl_php "$v"; then
+      ok "Verified SCL binary: /opt/remi/php${v}/root/usr/bin/php"
+      fixit "$v"
 
-    if [[ "$FPM_FLAG" == "1" && "$FORCE_FLAG" == "1" ]]; then
-      local svc="php${v}-php-fpm"
-      if systemctl list-unit-files | grep -q "^${svc}\.service"; then
-        systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
-        ok "Restarted FPM service: ${svc}"
+      # Restart FPM service if installed
+      if [[ "$FPM_FLAG" == "1" ]]; then
+        local svc="php${v}-php-fpm"
+        if systemctl list-unit-files | grep -q "^${svc}\.service"; then
+          systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
+          ok "Restarted FPM service: ${svc}"
+        fi
       fi
+    else
+      err "Binary missing for php${v}. Check $LOGFILE."
     fi
-  else
-    err "Binary missing for php${v}. Check $LOGFILE."
-  fi
 }
 # ------------------------------------------------------------------------------
 
@@ -294,7 +295,7 @@ main(){
       all|php54|php55|php56|php70|php71|php72|php73|php74|php80|php81|php82|php83)
         args+=("$1"); shift ;;
       -h|--help) usage; exit 0 ;;
-      *) warn "Unknown option: $1"; shift ;;
+      *) warn "⚠️ Ignoring unknown option: $1"; shift ;;
     esac
   done
 
@@ -304,32 +305,34 @@ main(){
     exit 2
   fi
 
-  info "Detected OS:"; cat /etc/redhat-release
-  info "Active system PHP: $(php_current_short || echo none)"
-  info "FPM install: $([[ "$FPM_FLAG" == "1" ]] && echo enabled || echo disabled)"
-  info "Force mode: $([[ "$FORCE_FLAG" == "1" ]] && echo enabled || echo disabled)"
-  say "----------------------------------------------------------"
+  say "=========================================================="
+  info "System check:"
+  say "  • OS version: CentOS/RHEL $os"
+  say "  • Active system PHP: $(php_current_short || echo none)"
+  say "  • FPM install requested: $([[ "$FPM_FLAG" == "1" ]] && echo Yes || echo No)"
+  say "  • Force reinstall mode: $([[ "$FORCE_FLAG" == "1" ]] && echo Yes || echo No)"
+  say "=========================================================="
 
   for arg in "${args[@]}"; do
     case "$arg" in
-      all) install_all ;;
-      php54) install_php_version 54 ;;
-      php55) install_php_version 55 ;;
-      php56) install_php_version 56 ;;
-      php70) install_php_version 70 ;;
-      php71) install_php_version 71 ;;
-      php72) install_php_version 72 ;;
-      php73) install_php_version 73 ;;
-      php74) install_php_version 74 ;;
-      php80) install_php_version 80 ;;
-      php81) install_php_version 81 ;;
-      php82) install_php_version 82 ;;
-      php83) install_php_version 83 ;;
+      all) info "➡ Installing all supported PHP versions..."; install_all ;;
+      php54) info "➡ Installing PHP 5.4 (SCL)..."; install_php_version 54 ;;
+      php55) info "➡ Installing PHP 5.5 (SCL)..."; install_php_version 55 ;;
+      php56) info "➡ Installing PHP 5.6 (SCL)..."; install_php_version 56 ;;
+      php70) info "➡ Installing PHP 7.0 (SCL)..."; install_php_version 70 ;;
+      php71) info "➡ Installing PHP 7.1 (SCL)..."; install_php_version 71 ;;
+      php72) info "➡ Installing PHP 7.2 (SCL)..."; install_php_version 72 ;;
+      php73) info "➡ Installing PHP 7.3 (SCL)..."; install_php_version 73 ;;
+      php74) info "➡ Installing PHP 7.4 (SCL)..."; install_php_version 74 ;;
+      php80) info "➡ Installing PHP 8.0 (SCL)..."; install_php_version 80 ;;
+      php81) info "➡ Installing PHP 8.1 (SCL)..."; install_php_version 81 ;;
+      php82) info "➡ Installing PHP 8.2 (SCL)..."; install_php_version 82 ;;
+      php83) info "➡ Installing PHP 8.3 (SCL)..."; install_php_version 83 ;;
     esac
   done
 
   summarize
-  ok "Installation complete!"
+  ok "✅ All requested installations complete!"
 }
 
 main "$@"
