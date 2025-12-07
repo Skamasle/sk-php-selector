@@ -182,7 +182,7 @@ install_php_version(){
       php${v}-php \
       php${v}-php-cli php${v}-php-common php${v}-php-gd php${v}-php-mbstring \
       php${v}-php-mysqlnd php${v}-php-pdo php${v}-php-xml php${v}-php-zip \
-      php${v}-php-opcache php${v}-php-xmlrpc php${v}-php-soap \
+      php${v}-php-opcache php${v}-php-xmlrpc php${v}-php-soap php${v}-php-pecl-apcu\
       ${FPM_FLAG:+php${v}-php-fpm} \
       --setopt=tsflags=nodocs \
       --disablerepo='remi-php*' \
