@@ -186,7 +186,7 @@ install_php_version(){
 
     if [[ "$FORCE_FLAG" == "1" ]]; then
       warn "FORCE mode: Reinstalling PHP ${full} packages"
-      YUM_CMD="yum install --reinstall -y"
+      YUM_CMD="yum reinstall -y"
     else
       YUM_CMD="yum install -y"
     fi
