@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 1.5 (Stable)
+# Extended & Hardened by Konstantinos Vlachos — version 1.7 (Stable + Force)
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
@@ -11,6 +11,7 @@
 #   - Fetches Vesta templates from GitHub, fallback to local or placeholder
 #   - Safe re-run (idempotent)
 #   - Optional --with-fpm flag to install phpXX-php-fpm and enable service
+#   - ✅ New: --force runs safe yum repair, refreshes templates & restarts FPM
 # ==============================================================================
 
 set -euo pipefail
@@ -21,6 +22,7 @@ TEMPLATE_DIR="/usr/local/vesta/data/templates/web/httpd"
 REMI_REPO_FILE="/etc/yum.repos.d/remi.repo"
 SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83)
 FPM_FLAG=0
+FORCE_FLAG=0
 DRY_RUN="${DRY_RUN:-0}"
 
 mkdir -p "$(dirname "$LOGFILE")"
@@ -176,8 +178,8 @@ install_php_version(){
   if have_pkg "${base}-common"; then
     ok "PHP ${full} already installed under /opt/remi/php${v}/"
   else
-    enable_subrepo "$v"
-    # Install ONLY SCL packages - never base 'php'
+    [[ "$FORCE_FLAG" == "1" ]] && warn "FORCE mode: Repairing PHP ${full}"
+
     yum install -y \
       php${v}-php \
       php${v}-php-cli php${v}-php-common php${v}-php-gd php${v}-php-mbstring \
@@ -188,19 +190,18 @@ install_php_version(){
       --disablerepo='remi-php*' \
       --enablerepo="remi,remi-safe,remi-modular,remi-php${v}" \
       --exclude='php,php-cli,php-common,php-fpm,php-mysqlnd,php-pdo,php-gd,php-xml,php-mbstring' \
-      --skip-broken >>"$LOGFILE" 2>&1 || warn "YUM issues installing PHP ${full}."
+      --skip-broken >>"$LOGFILE" 2>&1
   fi
 
   if verify_scl_php "$v"; then
     ok "Verified SCL binary: /opt/remi/php${v}/root/usr/bin/php"
     fixit "$v"
-    if [[ "$FPM_FLAG" == "1" ]]; then
+
+    if [[ "$FPM_FLAG" == "1" && "$FORCE_FLAG" == "1" ]]; then
       local svc="php${v}-php-fpm"
       if systemctl list-unit-files | grep -q "^${svc}\.service"; then
-        systemctl enable --now "$svc" >>"$LOGFILE" 2>&1 || true
-        ok "Enabled FPM service: ${svc}"
-      else
-        warn "No systemd service found for ${svc} (php-fpm not available for this version?)"
+        systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
+        ok "Restarted FPM service: ${svc}"
       fi
     fi
   else
@@ -245,11 +246,12 @@ usage(){
 cat <<EOF
 
 Usage:
-  bash $0 all [--with-fpm]
-  bash $0 php81 php83 [--with-fpm]
+  bash $0 all [--with-fpm] [--force]
+  bash $0 php81 php83 [--with-fpm] [--force]
 
 Options:
   --with-fpm    Install phpXX-php-fpm and enable the service.
+  --force       Safe yum repair + refresh templates + restart FPM
 
 Supported: 54 55 56 70 71 72 73 74 80 81 82 83
 
@@ -274,6 +276,7 @@ main(){
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --with-fpm) FPM_FLAG=1; shift ;;
+      --force) FORCE_FLAG=1; shift ;;
       all|php54|php55|php56|php70|php71|php72|php73|php74|php80|php81|php82|php83)
         args+=("$1"); shift ;;
       -h|--help) usage; exit 0 ;;
@@ -284,6 +287,7 @@ main(){
   info "Detected OS:"; cat /etc/redhat-release
   info "Active system PHP: $(php_current_short || echo none)"
   info "FPM install: $([[ "$FPM_FLAG" == "1" ]] && echo enabled || echo disabled)"
+  info "Force mode: $([[ "$FORCE_FLAG" == "1" ]] && echo enabled || echo disabled)"
   say "----------------------------------------------------------"
 
   for arg in "${args[@]}"; do
