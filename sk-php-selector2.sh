@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 1.8 (Stable + Force Reinstall)
+# Extended & Hardened by Konstantinos Vlachos — version 1.9 (Force Reinstall + Repo Fix)
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
@@ -11,7 +11,7 @@
 #   - Fetches Vesta templates from GitHub, fallback to local or placeholder
 #   - Safe re-run (idempotent)
 #   - Optional --with-fpm flag to install phpXX-php-fpm and enable service
-#   - ✅ New: --force runs yum --reinstall, refreshes templates & restarts FPM
+#   - ✅ --force runs yum --reinstall, refreshes templates & restarts FPM
 # ==============================================================================
 
 set -euo pipefail
@@ -84,14 +84,13 @@ ensure_remi(){
   yum-config-manager --enable remi remi-safe remi-modular >>"$LOGFILE" 2>&1 || true
 }
 
+# ✅ FIXED: No more broken grep detection
 enable_subrepo(){
-  local v="$1" subrepo="remi-php${v}"
-  if yum repolist all | grep -qE "^\s*${subrepo}\s"; then
-    yum-config-manager --enable "${subrepo}" >>"$LOGFILE" 2>&1 || true
-    info "Enabled subrepo: ${subrepo}"
-  else
-    warn "Repo ${subrepo} not found (skipping; assuming packages already present)"
-  fi
+  local v="$1"
+  local subrepo="remi-php${v}"
+
+  yum-config-manager --enable "${subrepo}" >>"$LOGFILE" 2>&1 || true
+  info "Requested repo enable: ${subrepo}"
 }
 # ------------------------------------------------------------------------------
 
@@ -176,6 +175,10 @@ install_php_version(){
   fi
 
   enable_subrepo "$v"
+
+  # ✅ ALWAYS refresh yum metadata before force/repair
+  yum clean all >>"$LOGFILE" 2>&1
+  yum makecache fast >>"$LOGFILE" 2>&1
 
   if have_pkg "${base}-common" && [[ "$FORCE_FLAG" != "1" ]]; then
     ok "PHP ${full} already installed under /opt/remi/php${v}/"
