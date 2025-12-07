@@ -203,7 +203,7 @@ install_php_version(){
       --setopt=tsflags=nodocs \
       --disablerepo='remi-php*' \
       --enablerepo="remi,remi-safe,remi-modular,remi-php${v}" \
-      --exclude='php,php-cli,php-common,php-fpm,php-mysqlnd,php-pdo,php-gd,php-xml,php-mbstring' \
+      --exclude='php php-cli php-common php-fpm php-mysqlnd php-pdo php-gd php-xml php-mbstring' \
       --skip-broken >>"$LOGFILE" 2>&1
 
     # Merge any .rpmnew configs automatically (e.g., APCu)
