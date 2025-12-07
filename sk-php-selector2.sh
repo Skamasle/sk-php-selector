@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 1.9 (Force Reinstall + Repo Fix)
+# Extended & Hardened by Konstantinos Vlachos — version 2.0 (Force Reinstall + Repo Fix)
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
@@ -196,6 +196,7 @@ install_php_version(){
       php${v}-php-cli php${v}-php-common php${v}-php-gd php${v}-php-mbstring \
       php${v}-php-mysqlnd php${v}-php-pdo php${v}-php-xml php${v}-php-zip \
       php${v}-php-opcache php${v}-php-xmlrpc php${v}-php-soap php${v}-php-pecl-apcu \
+      php${v}-php-intl php${v}-php-process \
       ${FPM_FLAG:+php${v}-php-fpm} \
       --setopt=tsflags=nodocs \
       --disablerepo='remi-php*' \
