@@ -180,18 +180,19 @@ install_php_version(){
   if have_pkg "${base}-common" && [[ "$FORCE_FLAG" != "1" ]]; then
     ok "PHP ${full} already installed under /opt/remi/php${v}/"
   else
+
     if [[ "$FORCE_FLAG" == "1" ]]; then
       warn "FORCE mode: Reinstalling PHP ${full} packages"
-      YUM_MODE="--reinstall"
+      YUM_CMD="yum install --reinstall -y"
     else
-      YUM_MODE=""
+      YUM_CMD="yum install -y"
     fi
 
-    yum install $YUM_MODE -y \
+    $YUM_CMD \
       php${v}-php \
       php${v}-php-cli php${v}-php-common php${v}-php-gd php${v}-php-mbstring \
       php${v}-php-mysqlnd php${v}-php-pdo php${v}-php-xml php${v}-php-zip \
-      php${v}-php-opcache php${v}-php-xmlrpc php${v}-php-soap php${v}-php-pecl-apcu\
+      php${v}-php-opcache php${v}-php-xmlrpc php${v}-php-soap php${v}-php-pecl-apcu \
       ${FPM_FLAG:+php${v}-php-fpm} \
       --setopt=tsflags=nodocs \
       --disablerepo='remi-php*' \
@@ -199,6 +200,7 @@ install_php_version(){
       --exclude='php,php-cli,php-common,php-fpm,php-mysqlnd,php-pdo,php-gd,php-xml,php-mbstring' \
       --skip-broken >>"$LOGFILE" 2>&1
   fi
+
 
   if verify_scl_php "$v"; then
     ok "Verified SCL binary: /opt/remi/php${v}/root/usr/bin/php"
