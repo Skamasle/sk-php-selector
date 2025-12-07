@@ -167,7 +167,7 @@ install_php_version(){
   info "Installing SCL PHP ${full} (php${v}) — keeping system PHP intact"
   say "------------------------------------------------------------------------------"
 
-  # ✅ Hard-protect base PHP from Remi (do not upgrade php/php-cli/etc)
+  # Protect base PHP from Remi (do not upgrade system php/php-cli/etc)
   yum-config-manager --disable remi-php* >>"$LOGFILE" 2>&1 || true
 
   if [[ -n "$active" ]]; then
@@ -176,14 +176,13 @@ install_php_version(){
 
   enable_subrepo "$v"
 
-  # ✅ ALWAYS refresh yum metadata before force/repair
+  # Always refresh yum metadata before install/reinstall
   yum clean all >>"$LOGFILE" 2>&1
   yum makecache fast >>"$LOGFILE" 2>&1
 
   if have_pkg "${base}-common" && [[ "$FORCE_FLAG" != "1" ]]; then
     ok "PHP ${full} already installed under /opt/remi/php${v}/"
   else
-
     if [[ "$FORCE_FLAG" == "1" ]]; then
       warn "FORCE mode: Reinstalling PHP ${full} packages"
       YUM_CMD="yum reinstall -y"
