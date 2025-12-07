@@ -221,7 +221,8 @@ install_php_version(){
     else
       err "Binary missing for php${v}. Check $LOGFILE."
     fi
-}
+  fi   # <-- closes the outer if/else
+}      # <-- closes the function
 # ------------------------------------------------------------------------------
 
 # ------------------------------- Install all ----------------------------------
