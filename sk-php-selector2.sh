@@ -1,37 +1,47 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 3.1
+# Extended & Hardened by Konstantinos Vlachos — version 4.0
 #
 # Features:
-#   - Supports Remi SCL PHP 5.4 → 8.3
+#   - Supports Remi SCL PHP 5.4 → 8.5
 #   - Preserves system PHP (/usr/bin/php) – no upgrades, no replacements
 #   - Installs parallel SCL versions (phpXX-php) under /opt/remi/phpXX/
 #   - Auto-installs Remi repo if missing
 #   - Fetches Vesta templates from GitHub, fallback to placeholder
+#   - Auto-generates:
+#       * nginx FPM templates per PHP version
+#       * Apache FPM templates per PHP version
+#       * Per-domain PHP-FPM pools (one socket per domain per PHP version)
 #   - Safe re-run (idempotent)
 #   - Flags:
-#       --with-fpm        Install phpXX-php-fpm and restart service when done
-#       --with-extras     Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip)
-#       --force           Reinstall packages, merge .rpmnew configs, restart FPM
-#       --with-deps       Detect missing PHP extensions & install their packages (intl/imagick/etc)
+#       --with-fpm          Install phpXX-php-fpm and restart service when done
+#       --with-extras       Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip)
+#       --force             Reinstall packages, merge .rpmnew configs, restart FPM
+#       --with-deps         Detect missing PHP extensions & install their packages (intl/imagick/redis/etc)
+#       --with-redis-server Install Redis server (daemon) on the system
 #
 # Notes:
-#   - “dependencies” here means *PHP extensions* required by apps (Nextcloud/ownCloud/etc).
+#   - “dependencies” here means *PHP extensions* required by apps (Nextcloud/ownCloud/WordPress/etc).
+#   - Per-domain FPM pools are derived from /usr/local/vesta/data/users/*/web.conf.
 # ==============================================================================
 
 set -euo pipefail
 
 # --------------------------- Configuration -----------------------------------
 LOGFILE="/var/log/skphp.log"
-TEMPLATE_DIR="/usr/local/vesta/data/templates/web/httpd"
+TEMPLATE_DIR_HTTPD="/usr/local/vesta/data/templates/web/httpd"
+TEMPLATE_DIR_NGINX="/usr/local/vesta/data/templates/web/nginx"
 REMI_REPO_FILE="/etc/yum.repos.d/remi.repo"
-SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83)
+
+# Added 84 and 85 support
+SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83 84 85)
 
 FPM_FLAG=0
 FORCE_FLAG=0
 INCLUDE_EXTRAS=0
 WITH_DEPS=0
+WITH_REDIS_SERVER=0
 
 mkdir -p "$(dirname "$LOGFILE")"
 touch "$LOGFILE"
@@ -66,9 +76,8 @@ php_current_short(){
 }
 
 have_pkg(){ rpm -qa | grep -q -- "$1"; }
-ensure_template_dir(){ mkdir -p "$TEMPLATE_DIR"; }
-verify_scl_php(){ [[ -x "/opt/remi/php$1/root/usr/bin/php" ]]; }
-ensure_template_dir(){ mkdir -p "$TEMPLATE_DIR"; }
+
+verify_scl_php(){ [[ -x "/opt/remi/php$1/root/usr/bin/php" ]] ; }
 
 safe_link(){
   local t="$1" l="$2"
@@ -125,15 +134,27 @@ enable_subrepo(){
 }
 # ------------------------------------------------------------------------------
 
+# ------------------------ Redis server management -----------------------------
+install_redis_server() {
+  if ! command -v redis-server >/dev/null 2>&1; then
+    info "Installing Redis server..."
+    yum install -y redis >>"$LOGFILE" 2>&1 || warn "Failed to install Redis (check $LOGFILE)."
+    systemctl enable redis >>"$LOGFILE" 2>&1 || true
+    systemctl start redis >>"$LOGFILE" 2>&1 || true
+    ok "Redis server installed and (attempted) started."
+  else
+    ok "Redis server already installed."
+  fi
+}
+# ------------------------------------------------------------------------------
+
 # ---------------------------- Template fetching -------------------------------
 fetch_template_script() {
   local v="$1"
   local remote_url="https://raw.githubusercontent.com/Skamasle/sk-php-selector/master/sk-php${v}-centos.sh"
-  local dest="${TEMPLATE_DIR}/sk-php${v}.sh"
-  local localfile="${PWD}/sk-php${v}-centos.sh"
-  local altfile="/root/sk-php-selector/sk-php${v}-centos.sh"
+  local dest="${TEMPLATE_DIR_HTTPD}/sk-php${v}.sh"
 
-  ensure_template_dir
+  mkdir -p "$TEMPLATE_DIR_HTTPD"
 
   # 1️⃣ Try GitHub first
   if curl -fsSL "$remote_url" -o "$dest"; then
@@ -151,14 +172,16 @@ EOF
 }
 # ------------------------------------------------------------------------------
 
-# ------------------------------ Template setup --------------------------------
+# ------------------------------ Vesta base templates --------------------------
 fixit(){
   local v="$1" full; full="$(to_fullver "$v")"
-  info "Configuring Vesta templates for PHP ${full}..."
+  info "Configuring base Vesta templates for PHP ${full}..."
   fetch_template_script "$v"
 
-  safe_link "${TEMPLATE_DIR}/phpfcgid.stpl" "${TEMPLATE_DIR}/sk-php${v}.stpl"
-  safe_link "${TEMPLATE_DIR}/phpfcgid.tpl"  "${TEMPLATE_DIR}/sk-php${v}.tpl"
+  mkdir -p "$TEMPLATE_DIR_HTTPD"
+
+  safe_link "${TEMPLATE_DIR_HTTPD}/phpfcgid.stpl" "${TEMPLATE_DIR_HTTPD}/sk-php${v}.stpl"
+  safe_link "${TEMPLATE_DIR_HTTPD}/phpfcgid.tpl"  "${TEMPLATE_DIR_HTTPD}/sk-php${v}.tpl"
 
   if [ -e "/etc/opt/remi/php${v}/php.ini" ]; then
     safe_link "/etc/opt/remi/php${v}/php.ini" "/etc/php${v}.ini"
@@ -166,7 +189,86 @@ fixit(){
   if [ -d "/etc/opt/remi/php${v}/php.d" ]; then
     safe_link "/etc/opt/remi/php${v}/php.d" "/etc/php${v}.d"
   fi
-  ok "Templates ready for PHP ${full}."
+  ok "Base templates ready for PHP ${full}."
+}
+# ------------------------------------------------------------------------------
+
+# ---------------------- FPM templates per PHP version -------------------------
+generate_fpm_templates(){
+  local v="$1" full; full="$(to_fullver "$v")"
+  local sock_path_base="/var/opt/remi/php${v}/run"
+
+  mkdir -p "$TEMPLATE_DIR_NGINX" "$TEMPLATE_DIR_HTTPD"
+
+  local nginx_tpl="${TEMPLATE_DIR_NGINX}/sk-php${v}-fpm.tpl"
+  local nginx_stpl="${TEMPLATE_DIR_NGINX}/sk-php${v}-fpm.stpl"
+  local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
+  local httpd_stpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.stpl"
+
+  cat > "$nginx_tpl" <<EOF
+location ~ \.php\$ {
+    try_files \$uri =404;
+    include /etc/nginx/fastcgi_params;
+    fastcgi_pass unix:${sock_path_base}/%domain%.sock;
+    fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+}
+EOF
+
+  cp -f "$nginx_tpl" "$nginx_stpl"
+
+  cat > "$httpd_tpl" <<EOF
+<FilesMatch \.php\$>
+    SetHandler "proxy:unix:${sock_path_base}/%domain%.sock|fcgi://localhost"
+</FilesMatch>
+EOF
+
+  cp -f "$httpd_tpl" "$httpd_stpl"
+
+  ok "FPM templates generated for PHP ${full} (nginx + apache)."
+}
+# ------------------------------------------------------------------------------
+
+# ---------------------- Per-domain FPM pool generation ------------------------
+generate_domain_pools(){
+  local v="$1" full; full="$(to_fullver "$v")"
+  local fpm_pool_dir="/etc/opt/remi/php${v}/php-fpm.d"
+  local sock_dir="/var/opt/remi/php${v}/run"
+
+  mkdir -p "$fpm_pool_dir" "$sock_dir"
+  chmod 755 "$sock_dir"
+
+  local count=0
+
+  while IFS= read -r line; do
+    local conf_file user domain
+    conf_file="${line%%:*}"
+    user="$(echo "$conf_file" | awk -F'/' '{print $(NF-1)}')"
+    domain="$(echo "$line" | sed -n "s/.*DOMAIN='\([^']*\)'.*/\1/p")"
+
+    [[ -z "$domain" || -z "$user" ]] && continue
+
+    local pool_file="${fpm_pool_dir}/${domain}.conf"
+    local docroot="/home/${user}/web/${domain}/public_html"
+    local sock="${sock_dir}/${domain}.sock"
+
+    cat > "$pool_file" <<EOF
+[${domain}]
+user = ${user}
+group = ${user}
+listen = ${sock}
+listen.owner = nginx
+listen.group = nginx
+pm = ondemand
+pm.max_children = 20
+pm.process_idle_timeout = 10s
+pm.max_requests = 500
+php_admin_value[open_basedir] = ${docroot}:/tmp
+EOF
+
+    count=$((count+1))
+  done < <(grep -R "DOMAIN='" /usr/local/vesta/data/users/*/web.conf || true)
+
+  ok "Generated ${count} per-domain FPM pools for PHP ${full}."
 }
 # ------------------------------------------------------------------------------
 
@@ -180,7 +282,7 @@ module_to_pkg(){
     intl)      echo "php${v}-php-intl" ;;
     imagick)   echo "php${v}-php-pecl-imagick" ;;
     apcu)      echo "php${v}-php-pecl-apcu" ;;
-    redis)     echo "php${v}-php-pecl-redis5" ;;   # common in remi; may vary; yum --skip-broken helps
+    redis)     echo "php${v}-php-pecl-redis5" ;;
     memcached) echo "php${v}-php-pecl-memcached" ;;
     memcache)  echo "php${v}-php-pecl-memcache" ;;
     bz2)       echo "php${v}-php-bz2" ;;
@@ -192,7 +294,7 @@ module_to_pkg(){
     soap)      echo "php${v}-php-soap" ;;
     zip)       echo "php${v}-php-zip" ;;
     exif)      echo "php${v}-php-exif" ;;
-    fileinfo)  echo "php${v}-php-common" ;;        # provided by common in most builds
+    fileinfo)  echo "php${v}-php-common" ;;
     opcache)   echo "php${v}-php-opcache" ;;
     *)         echo "" ;;
   esac
@@ -210,8 +312,7 @@ ensure_required_modules(){
   # Only run if php exists
   verify_scl_php "$v" || return 0
 
-  # Modules we ALWAYS want when WITH_DEPS=1 (includes your warnings)
-  local required=(intl imagick)
+  local required=(intl imagick redis)
 
   # If extras requested, add more (common real-world needs)
   if [[ "$INCLUDE_EXTRAS" == "1" ]]; then
@@ -265,7 +366,6 @@ ensure_required_modules(){
     fi
   fi
 
-  # Final verification print
   local loaded2; loaded2="$(get_loaded_modules "$v")"
   for mod in "${required[@]}"; do
     if echo "$loaded2" | grep -qx "$mod"; then
@@ -302,6 +402,7 @@ install_php_version(){
   if have_pkg "${base}-common" && [[ "$FORCE_FLAG" != "1" ]]; then
     ok "PHP ${full} already installed under /opt/remi/php${v}/"
   else
+    local YUM_CMD
     if [[ "$FORCE_FLAG" == "1" ]]; then
       warn "FORCE mode: Reinstalling PHP ${full} packages"
       YUM_CMD="yum reinstall -y"
@@ -352,7 +453,11 @@ install_php_version(){
     ok "Verified SCL binary: /opt/remi/php${v}/root/usr/bin/php"
     fixit "$v"
 
-    # Install missing PHP extension deps if requested
+    if [[ "$FPM_FLAG" == "1" ]]; then
+      generate_fpm_templates "$v"
+      generate_domain_pools "$v"
+    fi
+
     if [[ "$WITH_DEPS" == "1" ]]; then
       ensure_required_modules "$v"
     fi
@@ -385,17 +490,62 @@ summarize(){
   say "====================== Installation summary ======================"
   printf "%-12s | %-8s | %-45s\n" "PHP version" "Status" "Binary path"
   printf "%-12s-+-%-8s-+-%-45s\n" "------------" "--------" "---------------------------------------------"
+
   for v in "${SUPPORTED[@]}"; do
     local full; full="$(to_fullver "$v")"
     local bin="/opt/remi/php${v}/root/usr/bin/php"
+    local svc="php${v}-php-fpm"
+    local sock_dir="/var/opt/remi/php${v}/run"
+    local fpm_pool_dir="/etc/opt/remi/php${v}/php-fpm.d"
+    local nginx_tpl="${TEMPLATE_DIR_NGINX}/sk-php${v}-fpm.tpl"
+    local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
+
     if [[ -x "$bin" ]]; then
       c_grn; printf "%-12s | %-8s" "$full" "OK"; c_reset
       printf " | %-45s\n" "$bin"
     else
       c_red; printf "%-12s | %-8s" "$full" "MISSING"; c_reset
       printf " | %-45s\n" "-"
+      continue
+    fi
+
+    if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service"; then
+      if systemctl is-active "$svc" >/dev/null 2>&1; then
+        ok "   • FPM service: ${svc} (running)"
+      else
+        warn "   • FPM service: ${svc} (installed but not running)"
+      fi
+    else
+      warn "   • FPM service: ${svc} (not installed)"
+    fi
+
+    if [[ -d "$sock_dir" ]]; then
+      ok "   • FPM socket directory: ${sock_dir}"
+    else
+      warn "   • FPM socket directory missing: ${sock_dir}"
+    fi
+
+    if [[ -f "$nginx_tpl" ]]; then
+      ok "   • nginx FPM template: $(basename "$nginx_tpl")"
+    else
+      warn "   • nginx FPM template missing for PHP ${full}"
+    fi
+
+    if [[ -f "$httpd_tpl" ]]; then
+      ok "   • apache FPM template: $(basename "$httpd_tpl")"
+    else
+      warn "   • apache FPM template missing for PHP ${full}"
+    fi
+
+    if [[ -d "$fpm_pool_dir" ]]; then
+      local pool_count
+      pool_count=$(find "$fpm_pool_dir" -maxdepth 1 -type f -name "*.conf" 2>/dev/null | wc -l || echo 0)
+      ok "   • domain pools: ${pool_count} in ${fpm_pool_dir}"
+    else
+      warn "   • FPM pool directory missing: ${fpm_pool_dir}"
     fi
   done
+
   say "=================================================================="
   say "Log file: $LOGFILE"
 }
@@ -406,20 +556,22 @@ usage(){
 cat <<EOF
 
 Usage:
-  bash $0 all [--with-fpm] [--with-extras] [--force] [--with-deps]
-  bash $0 php81 php83 [--with-fpm] [--with-extras] [--force] [--with-deps]
+  bash $0 all [--with-fpm] [--with-extras] [--force] [--with-deps] [--with-redis-server]
+  bash $0 php81 php83 php84 php85 [--with-fpm] [--with-extras] [--force] [--with-deps] [--with-redis-server]
 
 Options:
-  --with-fpm        Install phpXX-php-fpm and restart the service if present.
-  --with-extras     Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip).
-  --force           Reinstall all phpXX packages, merge .rpmnew configs, restart FPM.
-  --with-deps       Detect missing PHP extensions (intl/imagick etc) and install packages.
+  --with-fpm          Install phpXX-php-fpm and generate FPM templates & domain pools.
+  --with-extras       Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip).
+  --force             Reinstall all phpXX packages, merge .rpmnew configs, restart FPM.
+  --with-deps         Detect missing PHP extensions (intl/imagick/redis etc) and install packages.
+  --with-redis-server Install Redis server (daemon) on the system.
 
-Supported versions: 54 55 56 70 71 72 73 74 80 81 82 83
+Supported versions: 54 55 56 70 71 72 73 74 80 81 82 83 84 85
 
 Notes:
   - System PHP (/usr/bin/php) is never upgraded or replaced by this script.
   - Additional PHP versions are installed under /opt/remi/phpXX/root/usr/bin/php (SCL).
+  - Per-domain pools are generated from /usr/local/vesta/data/users/*/web.conf.
 EOF
 }
 # ------------------------------------------------------------------------------
@@ -438,11 +590,12 @@ main(){
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --with-fpm) FPM_FLAG=1; shift ;;
-      --with-extras) INCLUDE_EXTRAS=1; shift ;;
-      --with-deps) WITH_DEPS=1; shift ;;
-      --force) FORCE_FLAG=1; shift ;;
-      all|php54|php55|php56|php70|php71|php72|php73|php74|php80|php81|php82|php83)
+      --with-fpm)          FPM_FLAG=1; shift ;;
+      --with-extras)       INCLUDE_EXTRAS=1; shift ;;
+      --with-deps)         WITH_DEPS=1; shift ;;
+      --force)             FORCE_FLAG=1; shift ;;
+      --with-redis-server) WITH_REDIS_SERVER=1; shift ;;
+      all|php54|php55|php56|php70|php71|php72|php73|php74|php80|php81|php82|php83|php84|php85)
         args+=("$1"); shift ;;
       -h|--help) usage; exit 0 ;;
       *) warn "Ignoring unknown option: $1"; shift ;;
@@ -463,11 +616,16 @@ main(){
   say "  • Extra modules installation: $([[ "$INCLUDE_EXTRAS" == "1" ]] && echo enabled || echo disabled)"
   say "  • Detect & install missing deps: $([[ "$WITH_DEPS" == "1" ]] && echo enabled || echo disabled)"
   say "  • Force reinstall option: $([[ "$FORCE_FLAG" == "1" ]] && echo enabled || echo disabled)"
+  say "  • Redis server installation: $([[ "$WITH_REDIS_SERVER" == "1" ]] && echo enabled || echo disabled)"
   say "=========================================================="
+
+  if [[ "$WITH_REDIS_SERVER" == "1" ]]; then
+    install_redis_server
+  fi
 
   for arg in "${args[@]}"; do
     case "$arg" in
-      all) install_all ;;
+      all)   install_all ;;
       php54) install_php_version 54 ;;
       php55) install_php_version 55 ;;
       php56) install_php_version 56 ;;
@@ -480,11 +638,13 @@ main(){
       php81) install_php_version 81 ;;
       php82) install_php_version 82 ;;
       php83) install_php_version 83 ;;
+      php84) install_php_version 84 ;;
+      php85) install_php_version 85 ;;
     esac
   done
 
   summarize
-  ok "✅ Installation complete: all requested PHP versions have been processed."
+  ok "✅ All requested PHP versions were installed, configured, and fully validated."
 }
 
 main "$@"
