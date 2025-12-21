@@ -1,10 +1,10 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 4.2
+# Extended & Hardened by Konstantinos Vlachos — version 4.0
 #
 # Features:
-#   - Supports Remi SCL PHP 5.4 → 8.5
+#   - Supports Remi SCL PHP 5.4 → 8.3
 #   - Preserves system PHP (/usr/bin/php) – no upgrades, no replacements
 #   - Installs parallel SCL versions (phpXX-php) under /opt/remi/phpXX/
 #   - Auto-installs Remi repo if missing
@@ -34,8 +34,7 @@ TEMPLATE_DIR_HTTPD="/usr/local/vesta/data/templates/web/httpd"
 TEMPLATE_DIR_NGINX="/usr/local/vesta/data/templates/web/nginx"
 REMI_REPO_FILE="/etc/yum.repos.d/remi.repo"
 
-# Added 84 and 85 support
-SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83 84 85)
+SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83)
 
 FPM_FLAG=0
 FORCE_FLAG=0
@@ -53,7 +52,6 @@ c_red(){   tput setaf 1 2>/dev/null || true; }
 c_grn(){   tput setaf 2 2>/dev/null || true; }
 c_yel(){   tput setaf 3 2>/dev/null || true; }
 c_blu(){   tput setaf 4 2>/dev/null || true; }
-
 say(){ echo -e "$*"; }
 info(){ c_blu; say "$*"; c_reset; }
 ok(){   c_grn; say "$*"; c_reset; }
@@ -107,20 +105,9 @@ yum_safe_install(){
     --exclude='php php-cli php-common php-fpm php-mysqlnd php-pdo php-gd php-xml php-mbstring php-intl php-pecl-imagick' \
     --skip-broken >>"$LOGFILE" 2>&1
 }
+# ------------------------------------------------------------------------------
 
-php_version_supported() {
-  local v="$1"
-  local subrepo="remi-php${v}"
-
-  if ! yum repolist all | grep -q "${subrepo}"; then
-    return 1
-  fi
-
-  if ! yum --enablerepo="${subrepo}" list available "php${v}-php" >/dev/null 2>&1; then
-    return 1
-  fi
-
-  return 0
+# ----------------------------- Repo management --------------------------------
 ensure_remi(){
   if [[ ! -f "$REMI_REPO_FILE" ]]; then
     info "Installing Remi repository..."
@@ -374,164 +361,32 @@ ensure_required_modules(){
     local svc="php${v}-php-fpm"
     if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service"; then
       systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
-      systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
-      systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
-      systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
-      systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
-      systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
+      ok "Restarted FPM service: ${svc}"
     fi
   fi
-}
-generate_fpm_templates(){
-  local v="$1" full; full="$(to_fullver "$v")"
-  local sock_path_base="/var/opt/remi/php${v}/run"
 
-  mkdir -p "$TEMPLATE_DIR_NGINX" "$TEMPLATE_DIR_HTTPD"
-
-  local nginx_tpl="${TEMPLATE_DIR_NGINX}/sk-php${v}-fpm.tpl"
-  local nginx_stpl="${TEMPLATE_DIR_NGINX}/sk-php${v}-fpm.stpl"
-  local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
-  local httpd_stpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.stpl"
-
-  cat > "$nginx_tpl" <<EOF
-location ~ \.php\$ {
-    try_files \$uri =404;
-    include /etc/nginx/fastcgi_params;
-    fastcgi_pass unix:${sock_path_base}/%domain%.sock;
-    fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-}
-EOF
-
-  cp -f "$nginx_tpl" "$nginx_stpl"
-
-  cat > "$httpd_tpl" <<EOF
-<FilesMatch \.php\$>
-    SetHandler "proxy:unix:${sock_path_base}/%domain%.sock|fcgi://localhost"
-</FilesMatch>
-EOF
-
-  cp -f "$httpd_tpl" "$httpd_stpl"
-}
-
-generate_domain_pools(){
-  local v="$1" full; full="$(to_fullver "$v")"
-  local fpm_pool_dir="/etc/opt/remi/php${v}/php-fpm.d"
-  local sock_dir="/var/opt/remi/php${v}/run"
-
-  mkdir -p "$fpm_pool_dir" "$sock_dir"
-  chmod 755 "$sock_dir"
-
-  local count=0
-
-  while IFS= read -r line; do
-    local conf_file user domain
-    conf_file="${line%%:*}"
-    user="$(echo "$conf_file" | awk -F'/' '{print $(NF-1)}')"
-    domain="$(echo "$line" | sed -n "s/.*DOMAIN='\([^']*\)'.*/\1/p")"
-
-    [[ -z "$domain" || -z "$user" ]] && continue
-
-    local pool_file="${fpm_pool_dir}/${domain}.conf"
-    local docroot="/home/${user}/web/${domain}/public_html"
-    local sock="${sock_dir}/${domain}.sock"
-
-    cat > "$pool_file" <<EOF
-[${domain}]
-user = ${user}
-group = ${user}
-listen = ${sock}
-listen.owner = nginx
-listen.group = nginx
-pm = ondemand
-pm.max_children = 20
-pm.process_idle_timeout = 10s
-pm.max_requests = 500
-php_admin_value[open_basedir] = ${docroot}:/tmp
-EOF
-
-    count=$((count+1))
-  done < <(grep -R "DOMAIN='" /usr/local/vesta/data/users/*/web.conf || true)
-}
-
-module_to_pkg(){
-  local v="$1"
-  local mod="$2"
-
-  case "$mod" in
-    intl)      echo "php${v}-php-intl" ;;
-    imagick)   echo "php${v}-php-pecl-imagick" ;;
-    apcu)      echo "php${v}-php-pecl-apcu" ;;
-    redis)     echo "php${v}-php-pecl-redis5" ;;
-    memcached) echo "php${v}-php-pecl-memcached" ;;
-    memcache)  echo "php${v}-php-pecl-memcache" ;;
-    bz2)       echo "php${v}-php-bz2" ;;
-    gmp)       echo "php${v}-php-gmp" ;;
-    ldap)      echo "php${v}-php-ldap" ;;
-    imap)      echo "php${v}-php-imap" ;;
-    tidy)      echo "php${v}-php-tidy" ;;
-    pspell)    echo "php${v}-php-pspell" ;;
-    soap)      echo "php${v}-php-soap" ;;
-    zip)       echo "php${v}-php-zip" ;;
-    exif)      echo "php${v}-php-exif" ;;
-    fileinfo)  echo "php${v}-php-common" ;;
-    opcache)   echo "php${v}-php-opcache" ;;
-    *)         echo "" ;;
-  esac
-}
-
-get_loaded_modules(){
-  local v="$1"
-  "/opt/remi/php${v}/root/usr/bin/php" -m 2>/dev/null | tr '[:upper:]' '[:lower:]' || true
-}
-
-ensure_required_modules(){
-  local v="$1"
-
-  verify_scl_php "$v" || return 0
-
-  local required=(intl imagick redis)
-
-  if [[ "$INCLUDE_EXTRAS" == "1" ]]; then
-    required+=(ldap imap tidy pspell gmp zip soap opcache apcu)
-  fi
-
-  local loaded; loaded="$(get_loaded_modules "$v")"
-  if [[ -z "$loaded" ]]; then
-    return 0
-  fi
-
-  local missing_mods=()
-  local missing_pkgs=()
-
+  local loaded2; loaded2="$(get_loaded_modules "$v")"
   for mod in "${required[@]}"; do
-    if ! echo "$loaded" | grep -qx "$mod"; then
-      missing_mods+=("$mod")
-      local pkg; pkg="$(module_to_pkg "$v" "$mod")"
-      if [[ -n "$pkg" ]]; then
-        if ! rpm -q "$pkg" >/dev/null 2>&1; then
-          missing_pkgs+=("$pkg")
-        fi
-      fi
+    if echo "$loaded2" | grep -qx "$mod"; then
+      ok "php${v}: module enabled -> $mod"
+    else
+      warn "php${v}: module still missing -> $mod (check yum / php.d configs)"
     fi
   done
-
-  if [[ ${#missing_pkgs[@]} -gt 0 ]]; then
-    yum_safe_install "$v" "${missing_pkgs[@]}" || true
-  fi
-
-  if [[ "$FPM_FLAG" == "1" ]]; then
-    local svc="php${v}-php-fpm"
-    if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service"; then
-      systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
-    fi
-  fi
 }
+# ------------------------------------------------------------------------------
 
+# ----------------------------- PHP Installation -------------------------------
+install_php_version(){
+  local v="$1" full; full="$(to_fullver "$v")"
+  local base="php${v}-php"
+  local active; active="$(php_current_short || true)"
 
   say "------------------------------------------------------------------------------"
   info "Installing PHP ${full} (php${v}) — system PHP remains unchanged"
   say "------------------------------------------------------------------------------"
 
+  # Protect system PHP from unintended upgrades
   yum-config-manager --disable remi-php* >>"$LOGFILE" 2>&1 || true
 
   if [[ -n "$active" ]]; then
@@ -560,7 +415,7 @@ ensure_required_modules(){
       php${v}-php-gd php${v}-php-mbstring php${v}-php-process
       php${v}-php-xml php${v}-php-pdo php${v}-php-mysqlnd
       php${v}-php-zip php${v}-php-opcache php${v}-php-soap
-      php${v}-php-zip php${v}-php-opcache php${v}-php-soap
+      php${v}-php-xmlrpc php${v}-php-pecl-apcu
     )
 
     # Optional “extras” from your flag
@@ -626,61 +481,9 @@ install_all(){
     install_php_version "$v"
   done
 }
+# ------------------------------------------------------------------------------
 
-core_pkgs_for_ver() {
-  local v="$1"
-  echo "php${v}-php-cli php${v}-php-common php${v}-php-pdo php${v}-php-mysqlnd php${v}-php-xml php${v}-php-mbstring php${v}-php-gd php${v}-php-process"
-}
-optional_pkgs_for_ver() {
-  local v="$1"
-  echo "php${v}-php-intl php${v}-php-soap php${v}-php-zip php${v}-php-exif php${v}-php-bz2 php${v}-php-gmp"
-}
-pecl_pkgs_for_ver() {
-  local v="$1"
-  echo "php${v}-php-pecl-imagick php${v}-php-pecl-redis5 php${v}-php-pecl-apcu php${v}-php-pecl-memcache php${v}-php-pecl-memcached"
-}
-mail_pkgs_for_ver() {
-  local v="$1"
-  echo "php${v}-php-imap php${v}-php-ldap"
-}
-misc_pkgs_for_ver() {
-  local v="$1"
-  echo "php${v}-php-tidy php${v}-php-pspell php${v}-php-xmlrpc"
-}
-
-cat_available_installed_status() {
-  local v="$1"
-  local category="$2"
-
-  local pkgs=""
-  case "$category" in
-    core)     pkgs="$(core_pkgs_for_ver "$v")" ;;
-    optional) pkgs="$(optional_pkgs_for_ver "$v")" ;;
-    pecl)     pkgs="$(pecl_pkgs_for_ver "$v")" ;;
-    mail)     pkgs="$(mail_pkgs_for_ver "$v")" ;;
-    misc)     pkgs="$(misc_pkgs_for_ver "$v")" ;;
-  esac
-
-  local any_avail=0 any_inst=0
-  local p
-  for p in $pkgs; do
-    if yum list available "$p" >/dev/null 2>&1; then
-      any_avail=1
-    fi
-    if rpm -q "$p" >/dev/null 2>&1; then
-      any_inst=1
-    fi
-  done
-
-  echo "${any_avail}:${any_inst}"
-}
-
-print_cat_cell() {
-  local avail="$1" inst="$2"
-  if [[ "$avail" -eq 1 && "$inst" -eq 1 ]]; then
-    c_grn; printf "YES/YES"; c_reset
-  elif [[ "$avail" -eq 1 && "$inst" -eq 0 ]]; then
-    c_yel; printf "YES/NO "; c_reset
+# ------------------------------- Summary --------------------------------------
 summarize(){
   say
   say "====================== Installation summary ======================"
@@ -695,12 +498,6 @@ summarize(){
     local fpm_pool_dir="/etc/opt/remi/php${v}/php-fpm.d"
     local nginx_tpl="${TEMPLATE_DIR_NGINX}/sk-php${v}-fpm.tpl"
     local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
-    local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
-    local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
-    local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
-    local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
-    local httpd_tpl="${TEMPLATE_DIR_HTTPD}/sk-php${v}-fpm.tpl"
-
 
     if [[ -x "$bin" ]]; then
       c_grn; printf "%-12s | %-8s" "$full" "OK"; c_reset
@@ -750,61 +547,10 @@ summarize(){
 
   say "=================================================================="
   say "Log file: $LOGFILE"
- 
-  print_compatibility_table
 }
+# ------------------------------------------------------------------------------
 
-print_compatibility_table() {
-  say
-  say "====================== PHP Compatibility Table ======================"
-  say "PHP Version | Repo Exists | Core (Avail/Inst) | Optional (Avail/Inst) | PECL (Avail/Inst) | Mail (Avail/Inst) | Misc (Avail/Inst) | Status"
-  say "------------------------------------------------------------------------------------------------------------------------------------------"
-
-  for v in "${SUPPORTED[@]}"; do
-    local full; full="$(to_fullver "$v")"
-
-    if ! php_version_supported "$v"; then
-      c_yel; printf "%-11s | " "$full"; printf "%-11s" "NO"; c_reset
-      printf " | "; c_yel; printf "%-18s" "NO/NO"; c_reset
-      printf " | "; c_yel; printf "%-22s" "NO/NO"; c_reset
-      printf " | "; c_yel; printf "%-18s" "NO/NO"; c_reset
-      printf " | "; c_yel; printf "%-18s" "NO/NO"; c_reset
-      printf " | "; c_yel; printf "%-17s" "NO/NO"; c_reset
-      printf " | "; c_yel; printf "%s\n" "SKIPPED (unsupported on this OS)"; c_reset
-      continue
-    fi
-
-    c_grn; printf "%-11s | " "$full"; printf "%-11s" "YES"; c_reset
-
-    local core_status optional_status pecl_status mail_status misc_status
-    core_status=$(cat_available_installed_status "$v" core)
-    optional_status=$(cat_available_installed_status "$v" optional)
-    pecl_status=$(cat_available_installed_status "$v" pecl)
-    mail_status=$(cat_available_installed_status "$v" mail)
-    misc_status=$(cat_available_installed_status "$v" misc)
-
-    local a i
-    a="${core_status%%:*}"; i="${core_status##*:}"
-    printf " | "; print_cat_cell "$a" "$i"; printf "   "
-
-    a="${optional_status%%:*}"; i="${optional_status##*:}"
-    printf "| "; print_cat_cell "$a" "$i"; printf "        "
-
-    a="${pecl_status%%:*}"; i="${pecl_status##*:}"
-    printf "| "; print_cat_cell "$a" "$i"; printf "   "
-
-    a="${mail_status%%:*}"; i="${mail_status##*:}"
-    printf "| "; print_cat_cell "$a" "$i"; printf "   "
-
-    a="${misc_status%%:*}"; i="${misc_status##*:}"
-    printf "| "; print_cat_cell "$a" "$i"; printf "   | "
-
-    if [[ "$core_status" == "1:1" && "$pecl_status" == "1:1" ]]; then
-      c_grn; printf "OK"; c_reset
-    else
-      c_yel; printf "PARTIAL"; c_reset
-    fi
-    printf "\n"
+# ------------------------------- Usage ----------------------------------------
 usage(){
 cat <<EOF
 
@@ -819,7 +565,7 @@ Options:
   --with-deps         Detect missing PHP extensions (intl/imagick/redis etc) and install packages.
   --with-redis-server Install Redis server (daemon) on the system.
 
-Supported versions: 54 55 56 70 71 72 73 74 80 81 82 83 84 85
+Supported versions: 54 55 56 70 71 72 73 74 80 81 82 83
 
 Notes:
   - System PHP (/usr/bin/php) is never upgraded or replaced by this script.
@@ -891,9 +637,7 @@ main(){
       php81) install_php_version 81 ;;
       php82) install_php_version 82 ;;
       php83) install_php_version 83 ;;
-      php84) install_php_version 84 ;;
-      php85) install_php_version 85 ;;
-    esac
+      esac
   done
 
   summarize
@@ -901,5 +645,3 @@ main(){
 }
 
 main "$@"
-}
-}
