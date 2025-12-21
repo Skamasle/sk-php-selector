@@ -1,7 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Skamasle PHP SELECTOR for VestaCP (CentOS/RHEL 6/7)
-# Extended & Hardened by Konstantinos Vlachos — version 3.0
+# Extended & Hardened by Konstantinos Vlachos — version 3.1
 #
 # Features:
 #   - Supports Remi SCL PHP 5.4 → 8.3
@@ -11,9 +11,13 @@
 #   - Fetches Vesta templates from GitHub, fallback to placeholder
 #   - Safe re-run (idempotent)
 #   - Flags:
-#       --with-fpm     Install phpXX-php-fpm and restart service when done
-#       --with-extras  Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip)
-#       --force        Reinstall packages, merge .rpmnew configs, restart FPM
+#       --with-fpm        Install phpXX-php-fpm and restart service when done
+#       --with-extras     Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip)
+#       --force           Reinstall packages, merge .rpmnew configs, restart FPM
+#       --with-deps       Detect missing PHP extensions & install their packages (intl/imagick/etc)
+#
+# Notes:
+#   - “dependencies” here means *PHP extensions* required by apps (Nextcloud/ownCloud/etc).
 # ==============================================================================
 
 set -euo pipefail
@@ -27,6 +31,7 @@ SUPPORTED=(54 55 56 70 71 72 73 74 80 81 82 83)
 FPM_FLAG=0
 FORCE_FLAG=0
 INCLUDE_EXTRAS=0
+WITH_DEPS=0
 
 mkdir -p "$(dirname "$LOGFILE")"
 touch "$LOGFILE"
@@ -61,6 +66,7 @@ php_current_short(){
 }
 
 have_pkg(){ rpm -qa | grep -q -- "$1"; }
+ensure_template_dir(){ mkdir -p "$TEMPLATE_DIR"; }
 verify_scl_php(){ [[ -x "/opt/remi/php$1/root/usr/bin/php" ]]; }
 ensure_template_dir(){ mkdir -p "$TEMPLATE_DIR"; }
 
@@ -68,6 +74,28 @@ safe_link(){
   local t="$1" l="$2"
   [ -L "$l" ] && rm -f "$l"
   ln -s "$t" "$l"
+}
+
+yum_safe_install(){
+  # Installs only SCL packages and protects system php*
+  # Usage: yum_safe_install <phpver> <pkg1> <pkg2> ...
+  local v="$1"; shift
+  local pkgs=("$@")
+  local subrepo="remi-php${v}"
+
+  # Protect system PHP packages from getting upgraded
+  yum-config-manager --disable remi-php* >>"$LOGFILE" 2>&1 || true
+
+  # Enable only the subrepo we need
+  yum-config-manager --enable "${subrepo}" >>"$LOGFILE" 2>&1 || true
+
+  # Install pkgs from SCL repos only, exclude base PHP names
+  yum install -y "${pkgs[@]}" \
+    --setopt=tsflags=nodocs \
+    --disablerepo='remi-php*' \
+    --enablerepo="remi,remi-safe,remi-modular,${subrepo}" \
+    --exclude='php php-cli php-common php-fpm php-mysqlnd php-pdo php-gd php-xml php-mbstring php-intl php-pecl-imagick' \
+    --skip-broken >>"$LOGFILE" 2>&1
 }
 # ------------------------------------------------------------------------------
 
@@ -116,7 +144,7 @@ fetch_template_script() {
     cat > "$dest" <<EOF
 #!/bin/bash
 # Placeholder for PHP ${v}
-# This file generated automatically (no remote or local version found)
+# This file generated automatically (no remote template available)
 EOF
     chmod +x "$dest"
   fi
@@ -142,6 +170,113 @@ fixit(){
 }
 # ------------------------------------------------------------------------------
 
+# ---------------------- Detect & install missing PHP deps ---------------------
+# Map PHP module name -> SCL RPM package
+module_to_pkg(){
+  local v="$1"
+  local mod="$2"
+
+  case "$mod" in
+    intl)      echo "php${v}-php-intl" ;;
+    imagick)   echo "php${v}-php-pecl-imagick" ;;
+    apcu)      echo "php${v}-php-pecl-apcu" ;;
+    redis)     echo "php${v}-php-pecl-redis5" ;;   # common in remi; may vary; yum --skip-broken helps
+    memcached) echo "php${v}-php-pecl-memcached" ;;
+    memcache)  echo "php${v}-php-pecl-memcache" ;;
+    bz2)       echo "php${v}-php-bz2" ;;
+    gmp)       echo "php${v}-php-gmp" ;;
+    ldap)      echo "php${v}-php-ldap" ;;
+    imap)      echo "php${v}-php-imap" ;;
+    tidy)      echo "php${v}-php-tidy" ;;
+    pspell)    echo "php${v}-php-pspell" ;;
+    soap)      echo "php${v}-php-soap" ;;
+    zip)       echo "php${v}-php-zip" ;;
+    exif)      echo "php${v}-php-exif" ;;
+    fileinfo)  echo "php${v}-php-common" ;;        # provided by common in most builds
+    opcache)   echo "php${v}-php-opcache" ;;
+    *)         echo "" ;;
+  esac
+}
+
+get_loaded_modules(){
+  # Returns lowercase module list from SCL php -m
+  local v="$1"
+  "/opt/remi/php${v}/root/usr/bin/php" -m 2>/dev/null | tr '[:upper:]' '[:lower:]' || true
+}
+
+ensure_required_modules(){
+  local v="$1"
+
+  # Only run if php exists
+  verify_scl_php "$v" || return 0
+
+  # Modules we ALWAYS want when WITH_DEPS=1 (includes your warnings)
+  local required=(intl imagick)
+
+  # If extras requested, add more (common real-world needs)
+  if [[ "$INCLUDE_EXTRAS" == "1" ]]; then
+    required+=(ldap imap tidy pspell gmp zip soap opcache apcu)
+  fi
+
+  local loaded; loaded="$(get_loaded_modules "$v")"
+  if [[ -z "$loaded" ]]; then
+    warn "Could not read loaded modules for php${v}; skipping dep check."
+    return 0
+  fi
+
+  local missing_mods=()
+  local missing_pkgs=()
+
+  for mod in "${required[@]}"; do
+    if ! echo "$loaded" | grep -qx "$mod"; then
+      missing_mods+=("$mod")
+      local pkg; pkg="$(module_to_pkg "$v" "$mod")"
+      if [[ -n "$pkg" ]]; then
+        # Add package if not already installed
+        if ! rpm -q "$pkg" >/dev/null 2>&1; then
+          missing_pkgs+=("$pkg")
+        fi
+      else
+        warn "No RPM mapping for module '$mod' on php${v}."
+      fi
+    fi
+  done
+
+  if [[ ${#missing_mods[@]} -gt 0 ]]; then
+    warn "php${v}: Missing PHP modules: ${missing_mods[*]}"
+  else
+    ok "php${v}: Required PHP modules already present."
+    return 0
+  fi
+
+  if [[ ${#missing_pkgs[@]} -gt 0 ]]; then
+    info "php${v}: Installing missing module packages: ${missing_pkgs[*]}"
+    yum_safe_install "$v" "${missing_pkgs[@]}" || warn "Some dep packages failed (see $LOGFILE)."
+  else
+    warn "php${v}: Missing modules detected but no installable packages were identified (already installed?)"
+  fi
+
+  # Recheck after install (and restart FPM if enabled)
+  if [[ "$FPM_FLAG" == "1" ]]; then
+    local svc="php${v}-php-fpm"
+    if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service"; then
+      systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
+      ok "Restarted FPM service: ${svc}"
+    fi
+  fi
+
+  # Final verification print
+  local loaded2; loaded2="$(get_loaded_modules "$v")"
+  for mod in "${required[@]}"; do
+    if echo "$loaded2" | grep -qx "$mod"; then
+      ok "php${v}: module enabled -> $mod"
+    else
+      warn "php${v}: module still missing -> $mod (check yum / php.d configs)"
+    fi
+  done
+}
+# ------------------------------------------------------------------------------
+
 # ----------------------------- PHP Installation -------------------------------
 install_php_version(){
   local v="$1" full; full="$(to_fullver "$v")"
@@ -161,9 +296,8 @@ install_php_version(){
 
   enable_subrepo "$v"
 
-  # Always refresh yum metadata before install/reinstall
-  yum clean all >>"$LOGFILE" 2>&1
-  yum makecache fast >>"$LOGFILE" 2>&1
+  yum clean all >>"$LOGFILE" 2>&1 || true
+  yum makecache fast >>"$LOGFILE" 2>&1 || true
 
   if have_pkg "${base}-common" && [[ "$FORCE_FLAG" != "1" ]]; then
     ok "PHP ${full} already installed under /opt/remi/php${v}/"
@@ -178,17 +312,17 @@ install_php_version(){
     # Core modules (always installed; includes ownCloud required ones)
     local core_modules=(
       php${v}-php php${v}-php-cli php${v}-php-common
-      php${v}-php-gd php${v}-php-intl php${v}-php-mbstring
-      php${v}-php-process php${v}-php-xml php${v}-php-pdo
-      php${v}-php-mysqlnd php${v}-php-zip php${v}-php-opcache
-      php${v}-php-soap php${v}-php-xmlrpc php${v}-php-pecl-apcu
+      php${v}-php-gd php${v}-php-mbstring php${v}-php-process
+      php${v}-php-xml php${v}-php-pdo php${v}-php-mysqlnd
+      php${v}-php-zip php${v}-php-opcache php${v}-php-soap
+      php${v}-php-xmlrpc php${v}-php-pecl-apcu
     )
 
-    # Extra modules (optional / legacy / specialized)
+    # Optional “extras” from your flag
     local extra_modules=(
       php${v}-php-pspell php${v}-php-imap php${v}-php-ldap
-      php${v}-php-pecl-zip php${v}-php-gmp php${v}-php-tidy
-      php${v}-php-pecl-memcache
+      php${v}-php-gmp php${v}-php-tidy php${v}-php-pecl-memcache
+      php${v}-php-pecl-zip
     )
 
     local packages=("${core_modules[@]}")
@@ -206,28 +340,33 @@ install_php_version(){
       --exclude='php php-cli php-common php-fpm php-mysqlnd php-pdo php-gd php-xml php-mbstring' \
       --skip-broken >>"$LOGFILE" 2>&1
 
-    # Merge any .rpmnew configs automatically (e.g., APCu)
+    # Merge .rpmnew configs automatically
     for f in /etc/opt/remi/php${v}/php.d/*.rpmnew; do
       [ -f "$f" ] || continue
       mv -f "$f" "${f%.rpmnew}"
       ok "Merged rpmnew config: ${f%.rpmnew}"
     done
+  fi
 
-    if verify_scl_php "$v"; then
-      ok "Verified SCL binary: /opt/remi/php${v}/root/usr/bin/php"
-      fixit "$v"
+  if verify_scl_php "$v"; then
+    ok "Verified SCL binary: /opt/remi/php${v}/root/usr/bin/php"
+    fixit "$v"
 
-      # Restart FPM service if installed
-      if [[ "$FPM_FLAG" == "1" ]]; then
-        local svc="php${v}-php-fpm"
-        if systemctl list-unit-files | grep -q "^${svc}\.service"; then
-          systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
-          ok "Restarted FPM service: ${svc}"
-        fi
-      fi
-    else
-      err "Binary missing for php${v}. Check $LOGFILE."
+    # Install missing PHP extension deps if requested
+    if [[ "$WITH_DEPS" == "1" ]]; then
+      ensure_required_modules "$v"
     fi
+
+    # Restart FPM service if requested/installed
+    if [[ "$FPM_FLAG" == "1" ]]; then
+      local svc="php${v}-php-fpm"
+      if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service"; then
+        systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
+        ok "Restarted FPM service: ${svc}"
+      fi
+    fi
+  else
+    err "Binary missing for php${v}. Check $LOGFILE."
   fi
 }
 
@@ -267,14 +406,14 @@ usage(){
 cat <<EOF
 
 Usage:
-  bash $0 all [--with-fpm] [--with-extras] [--force]
-  bash $0 php74 [--with-fpm] [--with-extras] [--force]
-  bash $0 php81 php83 [--with-fpm] [--with-extras] [--force]
+  bash $0 all [--with-fpm] [--with-extras] [--force] [--with-deps]
+  bash $0 php81 php83 [--with-fpm] [--with-extras] [--force] [--with-deps]
 
 Options:
-  --with-fpm     Install phpXX-php-fpm and restart the service if present.
-  --with-extras  Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip).
-  --force        Reinstall all phpXX packages, merge .rpmnew configs, restart FPM.
+  --with-fpm        Install phpXX-php-fpm and restart the service if present.
+  --with-extras     Install extra modules (pspell, imap, ldap, tidy, memcache, pecl-zip).
+  --force           Reinstall all phpXX packages, merge .rpmnew configs, restart FPM.
+  --with-deps       Detect missing PHP extensions (intl/imagick etc) and install packages.
 
 Supported versions: 54 55 56 70 71 72 73 74 80 81 82 83
 
@@ -301,6 +440,7 @@ main(){
     case "$1" in
       --with-fpm) FPM_FLAG=1; shift ;;
       --with-extras) INCLUDE_EXTRAS=1; shift ;;
+      --with-deps) WITH_DEPS=1; shift ;;
       --force) FORCE_FLAG=1; shift ;;
       all|php54|php55|php56|php70|php71|php72|php73|php74|php80|php81|php82|php83)
         args+=("$1"); shift ;;
@@ -321,29 +461,30 @@ main(){
   say "  • Current system PHP version: $(php_current_short || echo none)"
   say "  • PHP-FPM installation: $([[ "$FPM_FLAG" == "1" ]] && echo enabled || echo disabled)"
   say "  • Extra modules installation: $([[ "$INCLUDE_EXTRAS" == "1" ]] && echo enabled || echo disabled)"
+  say "  • Detect & install missing deps: $([[ "$WITH_DEPS" == "1" ]] && echo enabled || echo disabled)"
   say "  • Force reinstall option: $([[ "$FORCE_FLAG" == "1" ]] && echo enabled || echo disabled)"
   say "=========================================================="
 
   for arg in "${args[@]}"; do
     case "$arg" in
-      all) info "Starting installation of all supported PHP versions..."; install_all ;;
-      php54) info "Beginning installation of PHP 5.4 (Software Collections)..."; install_php_version 54 ;;
-      php55) info "Beginning installation of PHP 5.5 (Software Collections)..."; install_php_version 55 ;;
-      php56) info "Beginning installation of PHP 5.6 (Software Collections)..."; install_php_version 56 ;;
-      php70) info "Beginning installation of PHP 7.0 (Software Collections)..."; install_php_version 70 ;;
-      php71) info "Beginning installation of PHP 7.1 (Software Collections)..."; install_php_version 71 ;;
-      php72) info "Beginning installation of PHP 7.2 (Software Collections)..."; install_php_version 72 ;;
-      php73) info "Beginning installation of PHP 7.3 (Software Collections)..."; install_php_version 73 ;;
-      php74) info "Beginning installation of PHP 7.4 (Software Collections)..."; install_php_version 74 ;;
-      php80) info "Beginning installation of PHP 8.0 (Software Collections)..."; install_php_version 80 ;;
-      php81) info "Beginning installation of PHP 8.1 (Software Collections)..."; install_php_version 81 ;;
-      php82) info "Beginning installation of PHP 8.2 (Software Collections)..."; install_php_version 82 ;;
-      php83) info "Beginning installation of PHP 8.3 (Software Collections)..."; install_php_version 83 ;;
+      all) install_all ;;
+      php54) install_php_version 54 ;;
+      php55) install_php_version 55 ;;
+      php56) install_php_version 56 ;;
+      php70) install_php_version 70 ;;
+      php71) install_php_version 71 ;;
+      php72) install_php_version 72 ;;
+      php73) install_php_version 73 ;;
+      php74) install_php_version 74 ;;
+      php80) install_php_version 80 ;;
+      php81) install_php_version 81 ;;
+      php82) install_php_version 82 ;;
+      php83) install_php_version 83 ;;
     esac
   done
 
   summarize
-  ok "✅ Installation complete: all requested PHP versions have been processed successfully."
+  ok "✅ Installation complete: all requested PHP versions have been processed."
 }
 
 main "$@"
