@@ -501,18 +501,18 @@ ensure_required_modules(){
   fi
 
   local missing_mods=()
-  for mod in "${required[@]}"; do
-  for mod in "${required[@]}"; do
+  local missing_pkgs=()
+
   for mod in "${required[@]}"; do
     if ! echo "$loaded" | grep -qx "$mod"; then
       missing_mods+=("$mod")
       local pkg; pkg="$(module_to_pkg "$v" "$mod")"
+      if [[ -n "$pkg" ]]; then
+        if ! rpm -q "$pkg" >/dev/null 2>&1; then
+          missing_pkgs+=("$pkg")
+        fi
+      fi
     fi
-  done
-  done
-  done
-  done
-  done
   done
 
   if [[ ${#missing_pkgs[@]} -gt 0 ]]; then
@@ -522,19 +522,15 @@ ensure_required_modules(){
   if [[ "$FPM_FLAG" == "1" ]]; then
     local svc="php${v}-php-fpm"
     if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}\.service"; then
-install_php_version(){
-  local v="$1" full; full="$(to_fullver "$v")"
-  local base="php${v}-php"
-  local active; active="$(php_current_short || true)"
+      systemctl restart "$svc" >>"$LOGFILE" 2>&1 || true
+    fi
+  fi
+}
+
 
   say "------------------------------------------------------------------------------"
   info "Installing PHP ${full} (php${v}) — system PHP remains unchanged"
   say "------------------------------------------------------------------------------"
-
-
-
-
-
 
   yum-config-manager --disable remi-php* >>"$LOGFILE" 2>&1 || true
 
@@ -630,9 +626,6 @@ install_all(){
     install_php_version "$v"
   done
 }
-}
-}
-
 
 core_pkgs_for_ver() {
   local v="$1"
@@ -757,12 +750,7 @@ summarize(){
 
   say "=================================================================="
   say "Log file: $LOGFILE"
-  say "Log file: $LOGFILE"
-  say "Log file: $LOGFILE"
-  say "Log file: $LOGFILE"
-  say "Log file: $LOGFILE"
-  say "Log file: $LOGFILE"
-
+ 
   print_compatibility_table
 }
 
