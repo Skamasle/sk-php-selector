@@ -60,6 +60,32 @@ err(){  c_red; say "$*"; c_reset; }
 # ------------------------------------------------------------------------------
 
 # ---------------------------- Utility functions ------------------------------
+
+# ---------------------- System library dependencies ---------------------------
+ensure_system_libs() {
+  local pkgs=()
+
+  if ! ldconfig -p 2>/dev/null | grep -q 'libsmbclient\.so'; then
+    pkgs+=("samba-client-libs")
+  fi
+
+  if ! ldconfig -p 2>/dev/null | grep -q 'libldap\.so'; then
+    pkgs+=("openldap" "openldap-clients")
+  fi
+
+  if [[ ${#pkgs[@]} -gt 0 ]]; then
+    pkgs=($(printf "%s\n" "${pkgs[@]}" | awk '!seen[$0]++'))
+
+    info "Installing missing system libraries: ${pkgs[*]}"
+    yum install -y "${pkgs[@]}" >>"$LOGFILE" 2>&1 || \
+      warn "Failed to install some system libraries (see $LOGFILE)."
+
+    ldconfig 2>/dev/null || true
+  fi
+}
+# ------------------------------------------------------------------------------
+
+
 die(){ err "ERROR: $*"; exit 1; }
 log(){ printf '%s %s\n' "[$(date +'%F %T')]" "$*" >>"$LOGFILE"; }
 
@@ -284,6 +310,7 @@ module_to_pkg(){
     redis)     echo "php${v}-php-pecl-redis5" ;;
     memcached) echo "php${v}-php-pecl-memcached" ;;
     memcache)  echo "php${v}-php-pecl-memcache" ;;
+    smbclient) echo "php${v}-php-pecl-smbclient" ;;   # <--- ADD THIS
     bz2)       echo "php${v}-php-bz2" ;;
     gmp)       echo "php${v}-php-gmp" ;;
     ldap)      echo "php${v}-php-ldap" ;;
@@ -298,6 +325,7 @@ module_to_pkg(){
     *)         echo "" ;;
   esac
 }
+
 
 get_loaded_modules(){
   # Returns lowercase module list from SCL php -m
@@ -350,6 +378,7 @@ ensure_required_modules(){
   fi
 
   if [[ ${#missing_pkgs[@]} -gt 0 ]]; then
+    ensure_system_libs
     info "php${v}: Installing missing module packages: ${missing_pkgs[*]}"
     yum_safe_install "$v" "${missing_pkgs[@]}" || warn "Some dep packages failed (see $LOGFILE)."
   else
