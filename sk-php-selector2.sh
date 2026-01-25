@@ -310,7 +310,7 @@ module_to_pkg(){
     redis)     echo "php${v}-php-pecl-redis5" ;;
     memcached) echo "php${v}-php-pecl-memcached" ;;
     memcache)  echo "php${v}-php-pecl-memcache" ;;
-    smbclient) echo "php${v}-php-pecl-smbclient" ;;   # <--- ADD THIS
+    smbclient) echo "php${v}-php-smbclient" ;;   # ✅ FIXED
     bz2)       echo "php${v}-php-bz2" ;;
     gmp)       echo "php${v}-php-gmp" ;;
     ldap)      echo "php${v}-php-ldap" ;;
